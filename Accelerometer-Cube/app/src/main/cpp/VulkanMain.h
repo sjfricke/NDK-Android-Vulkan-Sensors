@@ -17,6 +17,8 @@
 #include "vulkan_wrapper.h"
 #include "linmath.h"
 #include "Debugging.h"
+#include "glm/glm.hpp"
+#include "glm/gtc/matrix_transform.hpp"
 
 const char* APPLICATION_NAME = "Accelerometer_Cube";
 
@@ -91,15 +93,14 @@ struct
 
 // Same uniform buffer layout as shader
 struct {
-  mat4x4 projection;
-  mat4x4 modelView;
-  vec4 lightPos = {0.0f, 2.0f, 1.0f, 0.0f};
+  glm::mat4 projection;
+  glm::mat4 modelView;
+  glm::vec4 lightPos = glm::vec4(0.0f, 2.0f, 1.0f, 0.0f);
 } uboVS;
 
 float zoom = -10.5f;
 glm::vec3 rotation = glm::vec3(-25.0f, 15.0f, 0.0f);
 glm::vec3 cameraPos = glm::vec3();
-
 
 // Initialize vulkan device context
 // after return, vulkan is ready to draw
