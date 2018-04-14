@@ -14,6 +14,7 @@ add_library( AccelCube SHARED
              ${SRC_DIR}/vulkan_wrapper.cpp
 
              ${SRC_DIR}/AndroidMain.cpp
+             ${SRC_DIR}/VulkanMain.cpp
              ${SRC_DIR}/Cube.cpp)
 
 

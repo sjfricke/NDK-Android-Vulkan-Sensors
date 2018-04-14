@@ -13,7 +13,9 @@
 // limitations under the License.
 #include <android/log.h>
 #include <android_native_app_glue.h>
-#include "Cube.hpp"
+
+#include "VulkanMain.h"
+#include "Cube.h"
 
 // Process the next main command.
 void handle_cmd(android_app* app, int32_t cmd) {
