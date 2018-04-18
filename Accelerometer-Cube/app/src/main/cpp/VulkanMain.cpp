@@ -476,6 +476,365 @@ void CreateUniformBuffer(void) {
  }
 
 void CreateDescriptorSetLayout(void) {
+  std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings;
+
+  VkDescriptorSetLayoutBinding VertexSetLayoutBinding {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+  };
+
+  setLayoutBindings.push_back(VertexSetLayoutBinding);
+
+  VkDescriptorSetLayoutCreateInfo descriptorLayout{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+      .bindingCount = setLayoutBindings.size(),
+      .pBindings = setLayoutBindings.data(),
+  };
+
+  CALL_VK(vkCreateDescriptorSetLayout(device.device_, &descriptorLayout, nullptr, &descriptorSetLayout));
+
+}
+
+void CreatePipelineLayout(void) {
+
+  VkPipelineCacheCreateInfo pipelineCacheInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+      .pNext = nullptr,
+      .initialDataSize = 0,
+      .pInitialData = nullptr,
+      .flags = 0,  // reserved, must be 0
+  };
+  CALL_VK(vkCreatePipelineCache(device.device_, &pipelineCacheInfo, nullptr, &pipelineCache));
+
+  VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .pNext = nullptr,
+      .setLayoutCount = 1,
+      .pSetLayouts = &descriptorSetLayout,
+      .pushConstantRangeCount = 0,
+      .pPushConstantRanges = nullptr,
+  };
+  CALL_VK(vkCreatePipelineLayout(device.device_, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout));
+
+}
+
+enum ShaderType { VERTEX_SHADER, FRAGMENT_SHADER };
+VkResult loadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, ShaderType type) {
+  // Read the file
+  assert(androidAppCtx);
+  AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_BUFFER);
+  size_t fileLength = AAsset_getLength(file);
+
+  char* fileContent = new char[fileLength];
+
+  AAsset_read(file, fileContent, fileLength);
+
+  VkShaderModuleCreateInfo shaderModuleCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+      .pNext = nullptr,
+      .codeSize = fileLength,
+      .pCode = (const uint32_t*)fileContent,
+      .flags = 0,
+  };
+  VkResult result = vkCreateShaderModule( device.device_, &shaderModuleCreateInfo, nullptr, shaderOut);
+  assert(result == VK_SUCCESS);
+
+  delete[] fileContent;
+
+  return result;
+}
+
+void CreateGraphicsPipeline(void) {
+
+  // Specify input assembler state
+  VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+      .primitiveRestartEnable = VK_FALSE,
+  };
+
+  VkPipelineRasterizationStateCreateInfo rasterInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .depthClampEnable = VK_FALSE,
+      .rasterizerDiscardEnable = VK_FALSE,
+      .polygonMode = VK_POLYGON_MODE_FILL,
+      .cullMode = VK_CULL_MODE_BACK_BIT,
+      .frontFace = VK_FRONT_FACE_CLOCKWISE,
+      .depthBiasEnable = VK_FALSE,
+      .lineWidth = 1,
+  };
+
+  VkPipelineColorBlendAttachmentState attachmentStates{
+      .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+      .blendEnable = VK_FALSE,
+  };
+
+  VkPipelineColorBlendStateCreateInfo colorBlendInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+      .pNext = nullptr,
+      .logicOpEnable = VK_FALSE,
+      .logicOp = VK_LOGIC_OP_COPY,
+      .attachmentCount = 1,
+      .pAttachments = &attachmentStates,
+      .flags = 0,
+  };
+  VkPipelineDepthStencilStateCreateInfo depthStencilState {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+      .depthTestEnable = VK_TRUE,
+      .depthWriteEnable = VK_TRUE,
+      .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+      .depthBoundsTestEnable = VK_FALSE,
+      .back.compareOp = VK_COMPARE_OP_ALWAYS,
+      .stencilTestEnable = VK_FALSE,
+      .front = depthStencilState.back,
+  };
+
+  VkPipelineViewportStateCreateInfo viewportInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+      .pNext = nullptr,
+      .viewportCount = 1,
+      .scissorCount = 1,
+  };
+
+//  VkSampleMask sampleMask = ~0u;
+  VkPipelineMultisampleStateCreateInfo multisampleInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+      .sampleShadingEnable = VK_FALSE,
+      .minSampleShading = 0,
+//      .pSampleMask = &sampleMask,
+      .pSampleMask = nullptr,
+      .alphaToCoverageEnable = VK_FALSE,
+      .alphaToOneEnable = VK_FALSE,
+  };
+
+  std::vector<VkDynamicState> dynamicStateEnables = {
+      VK_DYNAMIC_STATE_VIEWPORT,
+      VK_DYNAMIC_STATE_SCISSOR,
+      VK_DYNAMIC_STATE_LINE_WIDTH,
+  };
+
+  VkPipelineDynamicStateCreateInfo dynamicStateInfo {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+      .flags = 0,
+      .pNext = nullptr,
+      .dynamicStateCount = static_cast<uint32_t>(dynamicStateEnables.size()),
+      .pDynamicStates = dynamicStateEnables.data()};
+
+  VkShaderModule vertexShader, fragmentShader;
+  loadShaderFromFile("shaders/cube.vert.spv", &vertexShader, VERTEX_SHADER);
+  loadShaderFromFile("shaders/cube.frag.spv", &fragmentShader, FRAGMENT_SHADER);
+
+  // Specify vertex and fragment shader stages
+  VkPipelineShaderStageCreateInfo shaderStages[2]{
+      {
+          .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .pNext = nullptr,
+          .stage = VK_SHADER_STAGE_VERTEX_BIT,
+          .module = vertexShader,
+          .pSpecializationInfo = nullptr,
+          .flags = 0,
+          .pName = "main",
+      },
+      {
+          .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .pNext = nullptr,
+          .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+          .module = fragmentShader,
+          .pSpecializationInfo = nullptr,
+          .flags = 0,
+          .pName = "main",
+      }};
+
+  // Specify vertex input state
+  VkVertexInputBindingDescription vertex_input_bindings{
+      .binding = 0,
+      .stride = 3 * sizeof(float),
+      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+  };
+  VkVertexInputAttributeDescription vertex_input_attributes[1]{{
+      .binding = 0,
+      .location = 0,
+      .format = VK_FORMAT_R32G32B32_SFLOAT,
+      .offset = 0,
+  }};
+  VkPipelineVertexInputStateCreateInfo vertexInputInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .pNext = nullptr,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = &vertex_input_bindings,
+      .vertexAttributeDescriptionCount = 1,
+      .pVertexAttributeDescriptions = vertex_input_attributes,
+  };
+
+  // Create the pipeline
+  VkGraphicsPipelineCreateInfo pipelineCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .stageCount = 2,
+      .pStages = shaderStages,
+      .pVertexInputState = &vertexInputInfo,
+      .pInputAssemblyState = &inputAssemblyInfo,
+      .pTessellationState = nullptr,
+      .pViewportState = &viewportInfo,
+      .pRasterizationState = &rasterInfo,
+      .pMultisampleState = &multisampleInfo,
+      .pDepthStencilState = nullptr,
+      .pColorBlendState = &colorBlendInfo,
+      .pDynamicState = &dynamicStateInfo,
+      .layout = pipelineLayout,
+      .renderPass = render.renderPass_,
+      .subpass = 0,
+      .basePipelineHandle = VK_NULL_HANDLE,
+      .basePipelineIndex = 0,
+  };
+
+  CALL_VK(vkCreateGraphicsPipelines(device.device_, pipelineCache, 1,
+                                    &pipelineCreateInfo, nullptr, &gfxPipeline));
+
+  // We don't need the shaders anymore, we can release their memory
+  vkDestroyShaderModule(device.device_, vertexShader, nullptr);
+  vkDestroyShaderModule(device.device_, fragmentShader, nullptr);
+
+}
+
+void DeleteGraphicsPipeline(void) {
+  if (gfxPipeline == VK_NULL_HANDLE) return;
+  vkDestroyPipeline(device.device_, gfxPipeline, nullptr);
+  vkDestroyPipelineCache(device.device_, pipelineCache, nullptr);
+  vkDestroyPipelineLayout(device.device_, pipelineLayout, nullptr);
+}
+
+void CreateDescriptorPool(void) {
+  std::vector<VkDescriptorPoolSize> poolSizes;
+
+  VkDescriptorPoolSize descriptorPoolSize{
+      .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .descriptorCount = 1,
+  };
+  poolSizes.push_back(descriptorPoolSize);
+
+  VkDescriptorPoolCreateInfo descriptorPoolInfo{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+      .poolSizeCount = poolSizes.size(),
+      .pPoolSizes = poolSizes.data(),
+      .maxSets = 2,
+  };
+
+  CALL_VK(vkCreateDescriptorPool(device.device_, &descriptorPoolInfo, nullptr, &descriptorPool));
+}
+
+void CreateDescriptorSet(void) {
+
+  VkDescriptorSetAllocateInfo allocInfo{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      .descriptorPool = descriptorPool,
+      .pSetLayouts = &descriptorSetLayout,
+      .descriptorSetCount = 1,
+  };
+
+  CALL_VK(vkAllocateDescriptorSets(device.device_, &allocInfo, &descriptorSet));
+
+  std::vector<VkWriteDescriptorSet> writeDescriptorSets;
+
+  VkWriteDescriptorSet writeDescriptorSet{
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = descriptorSet,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .dstBinding = 0,
+      .pBufferInfo = &uniformBuffer.descriptor,
+      .descriptorCount = 1,
+  };
+
+  writeDescriptorSets.push_back(writeDescriptorSet);
+
+  vkUpdateDescriptorSets(device.device_, writeDescriptorSets.size(), writeDescriptorSets.data(), 0, NULL);
+}
+
+void BuildCommandBuffers(void) {
+  VkViewport viewports{
+      .minDepth = 0.0f,
+      .maxDepth = 1.0f,
+      .x = 0,
+      .y = 0,
+      .width = (float)swapchain.displaySize_.width,
+      .height = (float)swapchain.displaySize_.height,
+  };
+
+  VkRect2D scissor = {.extent = swapchain.displaySize_,
+      .offset = {
+          .x = 0, .y = 0,
+      }};
+
+
+
+  for (int bufferIndex = 0; bufferIndex < swapchain.swapchainLength_;
+       bufferIndex++) {
+    // We start by creating and declare the "beginning" our command buffer
+    VkCommandBufferBeginInfo cmdBufferBeginInfo{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .pInheritanceInfo = nullptr,
+    };
+    CALL_VK(vkBeginCommandBuffer(render.cmdBuffer_[bufferIndex], &cmdBufferBeginInfo));
+    // transition the display image to color attachment layout
+    setImageLayout(render.cmdBuffer_[bufferIndex],
+                   swapchain.displayImages_[bufferIndex],
+                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+    // Now we start a renderpass. Any draw command has to be recorded in a
+    // renderpass
+    VkClearValue clearVals{
+        .color.float32[0] = 0.0f,
+        .color.float32[1] = 0.0f,
+        .color.float32[2] = 0.0f,
+        .color.float32[3] = 1.0f,
+    };
+    VkRenderPassBeginInfo renderPassBeginInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .pNext = nullptr,
+        .renderPass = render.renderPass_,
+        .framebuffer = swapchain.framebuffers_[bufferIndex],
+        .renderArea = {.offset =
+            {
+                .x = 0, .y = 0,
+            },
+            .extent = swapchain.displaySize_},
+        .clearValueCount = 1,
+        .pClearValues = &clearVals};
+    vkCmdBeginRenderPass(render.cmdBuffer_[bufferIndex], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+    // Bind what is necessary to the command buffer
+    vkCmdBindPipeline(render.cmdBuffer_[bufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, gfxPipeline.pipeline_);
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(render.cmdBuffer_[bufferIndex], 0, 1, &buffers.vertexBuf_, &offset);
+
+    // Draw Triangle
+    vkCmdDraw(render.cmdBuffer_[bufferIndex], 3, 1, 0, 0);
+
+    vkCmdEndRenderPass(render.cmdBuffer_[bufferIndex]);
+    // transition back to swapchain image to PRESENT_SRC_KHR
+    setImageLayout(render.cmdBuffer_[bufferIndex],
+                   swapchain.displayImages_[bufferIndex],
+                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    CALL_VK(vkEndCommandBuffer(render.cmdBuffer_[bufferIndex]));
+  }
 
 }
 
@@ -527,223 +886,6 @@ void DeleteBuffers(void) {
   vkDestroyBuffer(device.device_, buffers.vertexBuf_, nullptr);
 }
 
-enum ShaderType { VERTEX_SHADER, FRAGMENT_SHADER };
-VkResult loadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, ShaderType type) {
-  // Read the file
-  assert(androidAppCtx);
-  AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_BUFFER);
-  size_t fileLength = AAsset_getLength(file);
-
-  char* fileContent = new char[fileLength];
-
-  AAsset_read(file, fileContent, fileLength);
-
-  VkShaderModuleCreateInfo shaderModuleCreateInfo{
-      .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-      .pNext = nullptr,
-      .codeSize = fileLength,
-      .pCode = (const uint32_t*)fileContent,
-      .flags = 0,
-  };
-  VkResult result = vkCreateShaderModule( device.device_, &shaderModuleCreateInfo, nullptr, shaderOut);
-  assert(result == VK_SUCCESS);
-
-  delete[] fileContent;
-
-  return result;
-}
-
-// Create Graphics Pipeline
-VkResult CreateGraphicsPipeline(void) {
-  memset(&gfxPipeline, 0, sizeof(gfxPipeline));
-
-  // Create the pipeline cache
-  VkPipelineCacheCreateInfo pipelineCacheInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-      .pNext = nullptr,
-      .initialDataSize = 0,
-      .pInitialData = nullptr,
-      .flags = 0,  // reserved, must be 0
-  };
-  CALL_VK(vkCreatePipelineCache(device.device_, &pipelineCacheInfo, nullptr, &gfxPipeline.cache_));
-
-  // Create pipeline layout (empty)
-  VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-      .pNext = nullptr,
-      .setLayoutCount = 0,
-      .pSetLayouts = nullptr,
-      .pushConstantRangeCount = 0,
-      .pPushConstantRanges = nullptr,
-  };
-  CALL_VK(vkCreatePipelineLayout(device.device_, &pipelineLayoutCreateInfo, nullptr, &gfxPipeline.layout_));
-
-  // No dynamic state in that tutorial
-  VkPipelineDynamicStateCreateInfo dynamicStateInfo = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-      .pNext = nullptr,
-      .dynamicStateCount = 0,
-      .pDynamicStates = nullptr};
-
-  VkShaderModule vertexShader, fragmentShader;
-  loadShaderFromFile("shaders/basic.vert.spv", &vertexShader, VERTEX_SHADER);
-  loadShaderFromFile("shaders/basic.frag.spv", &fragmentShader, FRAGMENT_SHADER);
-
-  // Specify vertex and fragment shader stages
-  VkPipelineShaderStageCreateInfo shaderStages[2]{
-      {
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-          .pNext = nullptr,
-          .stage = VK_SHADER_STAGE_VERTEX_BIT,
-          .module = vertexShader,
-          .pSpecializationInfo = nullptr,
-          .flags = 0,
-          .pName = "main",
-      },
-      {
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-          .pNext = nullptr,
-          .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-          .module = fragmentShader,
-          .pSpecializationInfo = nullptr,
-          .flags = 0,
-          .pName = "main",
-      }};
-
-  VkViewport viewports{
-      .minDepth = 0.0f,
-      .maxDepth = 1.0f,
-      .x = 0,
-      .y = 0,
-      .width = (float)swapchain.displaySize_.width,
-      .height = (float)swapchain.displaySize_.height,
-  };
-
-  VkRect2D scissor = {.extent = swapchain.displaySize_,
-                      .offset = {
-                          .x = 0, .y = 0,
-                      }};
-  // Specify viewport info
-  VkPipelineViewportStateCreateInfo viewportInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-      .pNext = nullptr,
-      .viewportCount = 1,
-      .pViewports = &viewports,
-      .scissorCount = 1,
-      .pScissors = &scissor,
-  };
-
-  // Specify multisample info
-  VkSampleMask sampleMask = ~0u;
-  VkPipelineMultisampleStateCreateInfo multisampleInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-      .pNext = nullptr,
-      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-      .sampleShadingEnable = VK_FALSE,
-      .minSampleShading = 0,
-      .pSampleMask = &sampleMask,
-      .alphaToCoverageEnable = VK_FALSE,
-      .alphaToOneEnable = VK_FALSE,
-  };
-
-  // Specify color blend state
-  VkPipelineColorBlendAttachmentState attachmentStates{
-      .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-      .blendEnable = VK_FALSE,
-  };
-  VkPipelineColorBlendStateCreateInfo colorBlendInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-      .pNext = nullptr,
-      .logicOpEnable = VK_FALSE,
-      .logicOp = VK_LOGIC_OP_COPY,
-      .attachmentCount = 1,
-      .pAttachments = &attachmentStates,
-      .flags = 0,
-  };
-
-  // Specify rasterizer info
-  VkPipelineRasterizationStateCreateInfo rasterInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-      .pNext = nullptr,
-      .depthClampEnable = VK_FALSE,
-      .rasterizerDiscardEnable = VK_FALSE,
-      .polygonMode = VK_POLYGON_MODE_FILL,
-      .cullMode = VK_CULL_MODE_NONE,
-      .frontFace = VK_FRONT_FACE_CLOCKWISE,
-      .depthBiasEnable = VK_FALSE,
-      .lineWidth = 1,
-  };
-
-  // Specify input assembler state
-  VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-      .pNext = nullptr,
-      .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-      .primitiveRestartEnable = VK_FALSE,
-  };
-
-  // Specify vertex input state
-  VkVertexInputBindingDescription vertex_input_bindings{
-      .binding = 0,
-      .stride = 3 * sizeof(float),
-      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-  };
-  VkVertexInputAttributeDescription vertex_input_attributes[1]{{
-      .binding = 0,
-      .location = 0,
-      .format = VK_FORMAT_R32G32B32_SFLOAT,
-      .offset = 0,
-  }};
-  VkPipelineVertexInputStateCreateInfo vertexInputInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-      .pNext = nullptr,
-      .vertexBindingDescriptionCount = 1,
-      .pVertexBindingDescriptions = &vertex_input_bindings,
-      .vertexAttributeDescriptionCount = 1,
-      .pVertexAttributeDescriptions = vertex_input_attributes,
-  };
-
-  // Create the pipeline
-  VkGraphicsPipelineCreateInfo pipelineCreateInfo{
-      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-      .pNext = nullptr,
-      .flags = 0,
-      .stageCount = 2,
-      .pStages = shaderStages,
-      .pVertexInputState = &vertexInputInfo,
-      .pInputAssemblyState = &inputAssemblyInfo,
-      .pTessellationState = nullptr,
-      .pViewportState = &viewportInfo,
-      .pRasterizationState = &rasterInfo,
-      .pMultisampleState = &multisampleInfo,
-      .pDepthStencilState = nullptr,
-      .pColorBlendState = &colorBlendInfo,
-      .pDynamicState = &dynamicStateInfo,
-      .layout = gfxPipeline.layout_,
-      .renderPass = render.renderPass_,
-      .subpass = 0,
-      .basePipelineHandle = VK_NULL_HANDLE,
-      .basePipelineIndex = 0,
-  };
-
-  VkResult pipelineResult = vkCreateGraphicsPipelines(
-      device.device_, gfxPipeline.cache_, 1, &pipelineCreateInfo, nullptr, &gfxPipeline.pipeline_);
-
-  // We don't need the shaders anymore, we can release their memory
-  vkDestroyShaderModule(device.device_, vertexShader, nullptr);
-  vkDestroyShaderModule(device.device_, fragmentShader, nullptr);
-
-  return pipelineResult;
-}
-
-void DeleteGraphicsPipeline(void) {
-  if (gfxPipeline.pipeline_ == VK_NULL_HANDLE) return;
-  vkDestroyPipeline(device.device_, gfxPipeline.pipeline_, nullptr);
-  vkDestroyPipelineCache(device.device_, gfxPipeline.cache_, nullptr);
-  vkDestroyPipelineLayout(device.device_, gfxPipeline.layout_, nullptr);
-}
-
 // InitVulkan:
 //   Initialize Vulkan Context when android application window is created
 //   upon return, vulkan is ready to draw frames
@@ -764,71 +906,15 @@ bool InitVulkan(android_app* app) {
   CreateFrameBuffers();
   CreateUniformBuffer();
   CreateDescriptorSetLayout();
+  CreatePipelineLayout();
+  CreateGraphicsPipeline();
+  CreateDescriptorPool();
+  CreateDescriptorSet();
 
   CreateBuffers();  // create vertex buffers
 
-  // Create graphics pipeline
-  CreateGraphicsPipeline();
+  BuildCommandBuffers();
 
-
-
-  for (int bufferIndex = 0; bufferIndex < swapchain.swapchainLength_;
-       bufferIndex++) {
-    // We start by creating and declare the "beginning" our command buffer
-    VkCommandBufferBeginInfo cmdBufferBeginInfo{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .pInheritanceInfo = nullptr,
-    };
-    CALL_VK(vkBeginCommandBuffer(render.cmdBuffer_[bufferIndex], &cmdBufferBeginInfo));
-    // transition the display image to color attachment layout
-    setImageLayout(render.cmdBuffer_[bufferIndex],
-                   swapchain.displayImages_[bufferIndex],
-                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-
-    // Now we start a renderpass. Any draw command has to be recorded in a
-    // renderpass
-    VkClearValue clearVals{
-        .color.float32[0] = 0.0f,
-        .color.float32[1] = 0.0f,
-        .color.float32[2] = 0.0f,
-        .color.float32[3] = 1.0f,
-    };
-    VkRenderPassBeginInfo renderPassBeginInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .pNext = nullptr,
-        .renderPass = render.renderPass_,
-        .framebuffer = swapchain.framebuffers_[bufferIndex],
-        .renderArea = {.offset =
-                           {
-                               .x = 0, .y = 0,
-                           },
-                       .extent = swapchain.displaySize_},
-        .clearValueCount = 1,
-        .pClearValues = &clearVals};
-    vkCmdBeginRenderPass(render.cmdBuffer_[bufferIndex], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-    // Bind what is necessary to the command buffer
-    vkCmdBindPipeline(render.cmdBuffer_[bufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, gfxPipeline.pipeline_);
-    VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(render.cmdBuffer_[bufferIndex], 0, 1, &buffers.vertexBuf_, &offset);
-
-    // Draw Triangle
-    vkCmdDraw(render.cmdBuffer_[bufferIndex], 3, 1, 0, 0);
-
-    vkCmdEndRenderPass(render.cmdBuffer_[bufferIndex]);
-    // transition back to swapchain image to PRESENT_SRC_KHR
-    setImageLayout(render.cmdBuffer_[bufferIndex],
-                   swapchain.displayImages_[bufferIndex],
-                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
-    CALL_VK(vkEndCommandBuffer(render.cmdBuffer_[bufferIndex]));
-  }
 
   // We need to create a fence to be able, in the main loop, to wait for our
   // draw command(s) to finish before swapping the framebuffers

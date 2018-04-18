@@ -16,6 +16,7 @@
 
 #include "vulkan_wrapper.h"
 #include "linmath.h"
+#include "Cube.h"
 #include "Debugging.h"
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
@@ -76,12 +77,12 @@ struct VulkanBufferInfo {
 VulkanBufferInfo uniformBuffer;
 VulkanBufferInfo vertexBuffer;
 
-struct VulkanGfxPipelineInfo {
-  VkPipelineLayout layout_;
-  VkPipelineCache cache_;
-  VkPipeline pipeline_;
-};
-VulkanGfxPipelineInfo gfxPipeline;
+VkDescriptorSet descriptorSet;
+VkDescriptorSetLayout descriptorSetLayout;
+VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+VkPipelineLayout pipelineLayout;
+VkPipelineCache pipelineCache;
+VkPipeline gfxPipeline;
 
 struct
 {
