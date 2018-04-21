@@ -15,7 +15,6 @@
 #include <array>
 
 #include "vulkan_wrapper.h"
-#include "linmath.h"
 #include "Cube.h"
 #include "Debugging.h"
 #include "glm/glm.hpp"

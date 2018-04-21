@@ -2,145 +2,75 @@
 #define __CUBE_HPP__
 
 #include <android_native_app_glue.h>
-#include "linmath.h"
+#include "vulkan_wrapper.h"
 #include "Debugging.h"
+#include <vector>
 
-// Vertex positions
-const float vertexData[] = {
-    // Face 1 (Front)
-    1.0f,  1.0f,  1.0f, // 0
-    -1.0f,  1.0f,  1.0f, // 1
-    -1.0f, -1.0f,  1.0f, // 2
-    -1.0f, -1.0f,  1.0f, // 3
-    1.0f, -1.0f,  1.0f, // 2
-    1.0f,  1.0f,  1.0f, // 0
-    // Face 2 (Back)
-    1.0f, -1.0f, -1.0f, // 4
-    -1.0f,  1.0f, -1.0f, // 5
-    1.0f,  1.0f, -1.0f, // 6
-    -1.0f,  1.0f, -1.0f, // 5
-    1.0f, -1.0f, -1.0f, // 4
-    -1.0f, -1.0f, -1.0f, // 7
-    // Face 3 (Top)
-    1.0f,  1.0f,  1.0f, // 0
-    1.0f,  1.0f, -1.0f, // 6
-    -1.0f,  1.0f, -1.0f, // 5
-    -1.0f,  1.0f, -1.0f, // 5
-    -1.0f,  1.0f,  1.0f, // 1
-    1.0f,  1.0f,  1.0f, // 0
-    // Face 4 (Bottom)
-    1.0f, -1.0f,  1.0f, // 2
-    -1.0f, -1.0f,  1.0f, // 3
-    -1.0f, -1.0f, -1.0f, // 7
-    -1.0f, -1.0f, -1.0f, // 7
-    1.0f, -1.0f, -1.0f, // 4
-    1.0f, -1.0f,  1.0f, // 2
-    // Face 5 (Left)
-    -1.0f, -1.0f,  1.0f, // 3
-    -1.0f,  1.0f,  1.0f, // 1
-    -1.0f,  1.0f, -1.0f, // 5
-    -1.0f, -1.0f,  1.0f, // 4
-    -1.0f,  1.0f, -1.0f, // 5
-    -1.0f, -1.0f, -1.0f, // 3
-    // Face 6 (Right)
-    1.0f,  1.0f,  1.0f, // 0
-    1.0f, -1.0f,  1.0f, // 2
-    1.0f, -1.0f, -1.0f, // 4
-    1.0f, -1.0f, -1.0f, // 4
-    1.0f,  1.0f, -1.0f, // 6
-    1.0f,  1.0f,  1.0f, // 0
+struct Vertex {
+  float position[3];
+  float color[3];
 };
 
+// Vertex buffer and attributes
+struct {
+  VkDeviceMemory memory;
+  VkBuffer buffer;
+} vertices;
 
-const float normalData[] = {
-    // Face 1 (Front)
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    // Face 2 (Back)
-    0.0f, 0.0f, -1.0f,
-    0.0f, 0.0f, -1.0f,
-    0.0f, 0.0f, -1.0f,
-    0.0f, 0.0f, -1.0f,
-    0.0f, 0.0f, -1.0f,
-    0.0f, 0.0f, -1.0f,
-    // Face 3 (Top)
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    // Face 4 (Bottom)
-    0.0f, -1.0f, 0.0f,
-    0.0f, -1.0f, 0.0f,
-    0.0f, -1.0f, 0.0f,
-    0.0f, -1.0f, 0.0f,
-    0.0f, -1.0f, 0.0f,
-    0.0f, -1.0f, 0.0f,
-    // Face 5 (Left)
-    -1.0f, 0.0f, 0.0f,
-    -1.0f, 0.0f, 0.0f,
-    -1.0f, 0.0f, 0.0f,
-    -1.0f, 0.0f, 0.0f,
-    -1.0f, 0.0f, 0.0f,
-    -1.0f, 0.0f, 0.0f,
-    // Face 6 (Right)
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-};
+// Index buffer
+struct
+{
+  VkDeviceMemory memory;
+  VkBuffer buffer;
+  uint32_t count;
+} indices;
 
-const float colorData[] = {
-    // Face 1 (Front) BLUE
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    // Face 2 (Back) BLUE
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    0.0f, 0.0f, 1.0f,
-    // Face 3 (Top) GREEN
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    // Face 4 (Bottom)GREEN
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    0.0f, 1.0f, 0.0f,
-    // Face 5 (Left) RED
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    // Face 6 (Right) RED
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
-    1.0f, 0.0f, 0.0f,
+// Setup vertices
+std::vector<Vertex> vertexBuffer =
+    {
+        { {  1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+        { { -1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+        { { -1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+        { {  1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+
+        { {  1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+        { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+        { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+        { {  1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+
+        { {  1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
+        { { -1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
+        { { -1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
+        { {  1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
+
+        { {  1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
+        { { -1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
+        { { -1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
+        { {  1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
+
+        { {  1.0f,  1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
+        { {  1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
+        { {  1.0f, -1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
+        { {  1.0f, -1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
+
+        { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } },
+        { { -1.0f,  1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
+        { { -1.0f, -1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
+        { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } }
+    };
+uint32_t vertexBufferSize = static_cast<uint32_t>(vertexBuffer.size()) * sizeof(Vertex);
+
+// Setup indices
+std::vector<uint32_t> indexBuffer = {
+    0, 1, 2, 0, 2, 3,
+    4, 5, 6, 4, 6, 7,
+    8, 9, 10, 8, 10, 11,
+    12, 13, 14, 12, 14, 15,
+    16, 17, 18, 16, 18, 19,
+    20, 21, 22, 20, 22, 23
 };
+indices.count = static_cast<uint32_t>(indexBuffer.size());
+uint32_t indexBufferSize = indices.count * sizeof(uint32_t);
 
 #endif // __CUBE_HPP__
 
