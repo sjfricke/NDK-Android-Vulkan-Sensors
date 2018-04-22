@@ -45,6 +45,7 @@ struct VulkanSwapchainInfo {
 
   VkExtent2D displaySize_;
   VkFormat displayFormat_;
+  VkSemaphore semaphore_;
 
   // array of frame buffers and views
   std::vector<VkImage> displayImages_;
@@ -59,7 +60,6 @@ struct VulkanRenderInfo {
   std::vector<VkCommandBuffer> cmdBuffer_;
   uint32_t cmdBufferLen_;
   VkSemaphore semaphore_;
-  VkFence fence_;
 };
 VulkanRenderInfo render;
 
