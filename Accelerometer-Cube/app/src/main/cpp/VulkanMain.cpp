@@ -565,15 +565,15 @@ void CreateGraphicsPipeline(void) {
       .depthClampEnable = VK_FALSE,
       .rasterizerDiscardEnable = VK_FALSE,
       .polygonMode = VK_POLYGON_MODE_FILL,
-      .cullMode = VK_CULL_MODE_BACK_BIT,
+      .cullMode = VK_CULL_MODE_NONE,
       .frontFace = VK_FRONT_FACE_CLOCKWISE,
       .depthBiasEnable = VK_FALSE,
-      .lineWidth = 1,
+      .lineWidth = 1.0f,
   };
 
   VkPipelineColorBlendAttachmentState attachmentStates{
       .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+                        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
       .blendEnable = VK_FALSE,
   };
 
@@ -621,7 +621,6 @@ void CreateGraphicsPipeline(void) {
   std::vector<VkDynamicState> dynamicStateEnables = {
       VK_DYNAMIC_STATE_VIEWPORT,
       VK_DYNAMIC_STATE_SCISSOR,
-      VK_DYNAMIC_STATE_LINE_WIDTH,
   };
 
   VkPipelineDynamicStateCreateInfo dynamicStateInfo {
@@ -657,24 +656,34 @@ void CreateGraphicsPipeline(void) {
       }};
 
   // Specify vertex input state
-  VkVertexInputBindingDescription vertex_input_bindings{
+  VkVertexInputBindingDescription vertexInputBinding{
       .binding = 0,
-      .stride = 3 * sizeof(float),
+      .stride = sizeof(Vertex),
       .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
   };
-  VkVertexInputAttributeDescription vertex_input_attributes[1]{{
-      .binding = 0,
-      .location = 0,
-      .format = VK_FORMAT_R32G32B32_SFLOAT,
-      .offset = 0,
-  }};
+
+  // Inpute attribute bindings describe shader attribute locations and memory layouts
+  std::array<VkVertexInputAttributeDescription, 2> vertexInputAttributs;
+  // Attribute location 0: Position
+  vertexInputAttributs[0].binding = 0;
+  vertexInputAttributs[0].location = 0;
+  // Position attribute is three 32 bit signed (SFLOAT) floats (R32 G32 B32)
+  vertexInputAttributs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  vertexInputAttributs[0].offset = offsetof(Vertex, position);
+  // Attribute location 1: Color
+  vertexInputAttributs[1].binding = 0;
+  vertexInputAttributs[1].location = 1;
+  // Color attribute is three 32 bit signed (SFLOAT) floats (R32 G32 B32)
+  vertexInputAttributs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+  vertexInputAttributs[1].offset = offsetof(Vertex, color);
+
   VkPipelineVertexInputStateCreateInfo vertexInputInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
       .pNext = nullptr,
       .vertexBindingDescriptionCount = 1,
-      .pVertexBindingDescriptions = &vertex_input_bindings,
-      .vertexAttributeDescriptionCount = 1,
-      .pVertexAttributeDescriptions = vertex_input_attributes,
+      .pVertexBindingDescriptions = &vertexInputBinding,
+      .vertexAttributeDescriptionCount = 2,
+      .pVertexAttributeDescriptions = vertexInputAttributs.data(),
   };
 
   // Create the pipeline
@@ -690,7 +699,7 @@ void CreateGraphicsPipeline(void) {
       .pViewportState = &viewportInfo,
       .pRasterizationState = &rasterInfo,
       .pMultisampleState = &multisampleInfo,
-      .pDepthStencilState = nullptr,
+      .pDepthStencilState = &depthStencilState,
       .pColorBlendState = &colorBlendInfo,
       .pDynamicState = &dynamicStateInfo,
       .layout = pipelineLayout,
