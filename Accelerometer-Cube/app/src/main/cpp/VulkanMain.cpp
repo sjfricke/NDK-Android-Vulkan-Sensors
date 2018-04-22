@@ -1,4 +1,5 @@
 #include "VulkanMain.h"
+#include "Cube.h"
 
 /*
  * setImageLayout():
@@ -853,11 +854,13 @@ void BuildCommandBuffers(void) {
 // Create our vertex buffer
 bool CreateBuffers(void) {
 
+  void* data;
+
   // Create a vertex buffer
-  VkBufferCreateInfo createBufferInfo{
+  VkBufferCreateInfo vertexBufferInfo{
       .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
       .pNext = nullptr,
-      .size = sizeof(vertexData),
+      .size = vertexBufferSize,
       .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       .flags = 0,
       .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
@@ -865,37 +868,68 @@ bool CreateBuffers(void) {
       .queueFamilyIndexCount = 1,
   };
 
-  CALL_VK(vkCreateBuffer(device.device_, &createBufferInfo, nullptr, &buffers.vertexBuf_));
+  CALL_VK(vkCreateBuffer(device.device_, &vertexBufferInfo, nullptr, &vertices.buffer));
 
   VkMemoryRequirements memReq;
-  vkGetBufferMemoryRequirements(device.device_, buffers.vertexBuf_, &memReq);
+  vkGetBufferMemoryRequirements(device.device_, vertices.buffer, &memReq);
 
   VkMemoryAllocateInfo allocInfo{
       .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
       .pNext = nullptr,
-      .allocationSize = sizeof(vertexData),
+      .allocationSize = memReq.size,
       .memoryTypeIndex = 0,  // Memory type assigned in the next step
   };
 
   // Assign the proper memory type for that buffer
   allocInfo.allocationSize = memReq.size;
-  MapMemoryTypeToIndex(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &allocInfo.memoryTypeIndex);
+  assert(MapMemoryTypeToIndex(memReq.memoryTypeBits,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                       &allocInfo.memoryTypeIndex));
 
   // Allocate memory for the buffer
-  VkDeviceMemory deviceMemory;
-  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &deviceMemory));
+  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &vertices.memory));
 
-  void* data;
-  CALL_VK(vkMapMemory(device.device_, deviceMemory, 0, sizeof(vertexData), 0, &data));
-  memcpy(data, vertexData, sizeof(vertexData));
-  vkUnmapMemory(device.device_, deviceMemory);
+  CALL_VK(vkMapMemory(device.device_, vertices.memory, 0, allocInfo.allocationSize, 0, &data));
+  memcpy(data, vertexBuffer.data(), vertexBufferSize);
+  vkUnmapMemory(device.device_, vertices.memory);
 
-  CALL_VK(vkBindBufferMemory(device.device_, buffers.vertexBuf_, deviceMemory, 0));
+  CALL_VK(vkBindBufferMemory(device.device_, vertices.buffer, vertices.memory, 0));
+
+  // Index Memory
+  VkBufferCreateInfo indexBufferInfo{
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .pNext = nullptr,
+      .size = indexBufferSize,
+      .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      .flags = 0,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+      .pQueueFamilyIndices = &device.queueFamilyIndex_,
+      .queueFamilyIndexCount = 1,
+  };
+
+  CALL_VK(vkCreateBuffer(device.device_, &indexBufferInfo, nullptr, &indices.buffer));
+
+  vkGetBufferMemoryRequirements(device.device_, indices.buffer, &memReq);
+
+  allocInfo.allocationSize = memReq.size;
+  assert(MapMemoryTypeToIndex(memReq.memoryTypeBits,
+                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                              &allocInfo.memoryTypeIndex));
+
+  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &indices.memory));
+
+  CALL_VK(vkMapMemory(device.device_, indices.memory, 0, allocInfo.allocationSize, 0, &data));
+  memcpy(data, indexBuffer.data(), indexBufferSize);
+  vkUnmapMemory(device.device_, indices.memory);
+
+  CALL_VK(vkBindBufferMemory(device.device_, indices.buffer, indices.memory, 0));
+
   return true;
 }
 
 void DeleteBuffers(void) {
-  vkDestroyBuffer(device.device_, buffers.vertexBuf_, nullptr);
+  vkDestroyBuffer(device.device_, vertices.buffer, nullptr);
+  vkDestroyBuffer(device.device_, indices.buffer, nullptr);
 }
 
 // InitVulkan:
@@ -924,11 +958,10 @@ bool InitVulkan(android_app* app) {
   CreateDescriptorPool();
   CreateDescriptorSet();
 
-  CreateBuffers();  // create vertex buffers
+  // todo move Cube class
+  CreateBuffers();  // create vertex / index buffers
 
   BuildCommandBuffers();
-
-
 
   device.initialized_ = true;
   return true;
