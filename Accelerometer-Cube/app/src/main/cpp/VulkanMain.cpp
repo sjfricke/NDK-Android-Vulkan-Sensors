@@ -73,13 +73,15 @@ struct
 
 // Same uniform buffer layout as shader
 struct {
-  glm::mat4 projection;
-  glm::mat4 modelView;
-  glm::vec4 lightPos = glm::vec4(0.0f, 2.0f, 1.0f, 0.0f);
+  glm::mat4 projectionMatrix;
+  glm::mat4 modelMatrix;
+  glm::mat4 viewMatrix;
 } uboVS;
 
-float zoom = -10.5f;
-glm::vec3 rotation = glm::vec3(-25.0f, 15.0f, 0.0f);
+bool viewChanged;
+
+float zoom = -3.5f;
+glm::vec3 rotation = glm::vec3();
 glm::vec3 cameraPos = glm::vec3();
 
 struct Vertex {
@@ -176,19 +178,22 @@ bool MapMemoryTypeToIndex(uint32_t typeBits, VkFlags requirements_mask,
 }
 
 void updateUniformBuffers(void) {
-  uboVS.projection = glm::perspective(glm::radians(60.0f),
-                                      (float)(swapchain.displaySize_.width / 3.0f) / (float)swapchain.displaySize_.height,
+  uboVS.projectionMatrix = glm::perspective(glm::radians(60.0f),
+                                      (float)(swapchain.displaySize_.width) / (float)swapchain.displaySize_.height,
                                       0.1f,
                                       256.0f);
 
   glm::mat4 viewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, zoom));
 
-  uboVS.modelView = viewMatrix * glm::translate(glm::mat4(1.0f), cameraPos);
-  uboVS.modelView = glm::rotate(uboVS.modelView, glm::radians(rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
-  uboVS.modelView = glm::rotate(uboVS.modelView, glm::radians(rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
-  uboVS.modelView = glm::rotate(uboVS.modelView, glm::radians(rotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
+  uboVS.modelMatrix = glm::mat4(1.0f);
+  uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
+  uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
+  uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
 
+  CALL_VK(vkMapMemory(device.device_, uniformBuffer.memory, 0, VK_WHOLE_SIZE, 0, &uniformBuffer.mapped));
   memcpy(uniformBuffer.mapped, &uboVS, sizeof(uboVS));
+  vkUnmapMemory(device.device_, uniformBuffer.memory);
+
 }
 
 // Create vulkan device
@@ -607,17 +612,15 @@ void CreateUniformBuffer(void) {
 
   CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &uniformBuffer.memory));
 
-  uniformBuffer.alignment = memReq.alignment;
-  uniformBuffer.size = allocInfo.allocationSize;
+  CALL_VK(vkBindBufferMemory(device.device_, uniformBuffer.buffer, uniformBuffer.memory, 0));
+
+//  uniformBuffer.alignment = memReq.alignment;
+//  uniformBuffer.size = allocInfo.allocationSize;
   uniformBuffer.descriptor.offset = 0;
   uniformBuffer.descriptor.range = VK_WHOLE_SIZE;
   uniformBuffer.descriptor.buffer = uniformBuffer.buffer;
 
-  CALL_VK(vkMapMemory(device.device_, uniformBuffer.memory, 0, VK_WHOLE_SIZE, 0, &uniformBuffer.mapped));
   updateUniformBuffers();
-  vkUnmapMemory(device.device_, uniformBuffer.memory);
-
-  CALL_VK(vkBindBufferMemory(device.device_, uniformBuffer.buffer, uniformBuffer.memory, 0));
  }
 
 void CreateDescriptorSetLayout(void) {
@@ -1135,6 +1138,7 @@ bool InitVulkan(android_app* app) {
 
   BuildCommandBuffers();
 
+  viewChanged = false;
   device.initialized_ = true;
   return true;
 }
@@ -1161,6 +1165,11 @@ void DeleteVulkan(void) {
 
 // Draw one frame
 bool VulkanDrawFrame(void) {
+
+  if (viewChanged == true) {
+    updateUniformBuffers();
+  }
+
   uint32_t nextIndex;
   // Get the framebuffer index we should draw in
   CALL_VK(vkAcquireNextImageKHR(
