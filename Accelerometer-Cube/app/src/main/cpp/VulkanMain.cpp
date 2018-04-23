@@ -1,6 +1,152 @@
 #include "VulkanMain.h"
 #include "Cube.h"
 
+
+const char* APPLICATION_NAME = "Accelerometer_Cube";
+
+// Android Native App pointer...
+android_app* androidAppCtx = nullptr;
+
+// Global Variables ...
+struct VulkanDeviceInfo {
+  bool initialized_;
+
+  VkInstance instance_;
+  VkPhysicalDevice gpuDevice_;
+  VkDevice device_;
+  uint32_t queueFamilyIndex_;
+
+  VkSurfaceKHR surface_;
+  VkQueue queue_;
+};
+VulkanDeviceInfo device;
+
+struct VulkanSwapchainInfo {
+  VkSwapchainKHR swapchain_;
+  uint32_t swapchainLength_;
+
+  VkExtent2D displaySize_;
+  VkFormat displayFormat_;
+  VkSemaphore semaphore_;
+
+  // array of frame buffers and views
+  std::vector<VkImage> displayImages_;
+  std::vector<VkImageView> displayViews_;
+  std::vector<VkFramebuffer> framebuffers_;
+};
+VulkanSwapchainInfo swapchain;
+
+struct VulkanRenderInfo {
+  VkRenderPass renderPass_;
+  VkCommandPool cmdPool_;
+  std::vector<VkCommandBuffer> cmdBuffer_;
+  VkSemaphore semaphore_;
+};
+VulkanRenderInfo render;
+
+struct VulkanBufferInfo {
+  VkBuffer buffer;
+  VkDeviceMemory memory;
+  VkDescriptorBufferInfo descriptor;
+  VkDeviceSize size;
+  VkDeviceSize alignment;
+  VkBufferUsageFlags usageFlags;
+  VkMemoryPropertyFlags memoryPropertyFlags;
+  void* mapped = nullptr;
+};
+VulkanBufferInfo uniformBuffer;
+
+VkDescriptorSet descriptorSet;
+VkDescriptorSetLayout descriptorSetLayout;
+VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+VkPipelineLayout pipelineLayout;
+VkPipelineCache pipelineCache;
+VkPipeline gfxPipeline;
+
+struct
+{
+  VkImage image;
+  VkDeviceMemory mem;
+  VkImageView view;
+  VkFormat format;
+} depthStencil;
+
+// Same uniform buffer layout as shader
+struct {
+  glm::mat4 projection;
+  glm::mat4 modelView;
+  glm::vec4 lightPos = glm::vec4(0.0f, 2.0f, 1.0f, 0.0f);
+} uboVS;
+
+float zoom = -10.5f;
+glm::vec3 rotation = glm::vec3(-25.0f, 15.0f, 0.0f);
+glm::vec3 cameraPos = glm::vec3();
+
+struct Vertex {
+  float position[3];
+  float color[3];
+};
+
+// Vertex buffer and attributes
+struct {
+  VkDeviceMemory memory;
+  VkBuffer buffer;
+} vertices;
+
+// Index buffer
+struct
+{
+  VkDeviceMemory memory;
+  VkBuffer buffer;
+  uint32_t count;
+} indices;
+
+// Setup vertices
+std::vector<Vertex> vertexBuffer =
+    {
+        { {  1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+        { { -1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+        { { -1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+        { {  1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+
+        { {  1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+        { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+        { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+        { {  1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+
+        { {  1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
+        { { -1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
+        { { -1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
+        { {  1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
+
+        { {  1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
+        { { -1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
+        { { -1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
+        { {  1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
+
+        { {  1.0f,  1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
+        { {  1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
+        { {  1.0f, -1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
+        { {  1.0f, -1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
+
+        { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } },
+        { { -1.0f,  1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
+        { { -1.0f, -1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
+        { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } }
+    };
+uint32_t vertexBufferSize = static_cast<uint32_t>(vertexBuffer.size()) * sizeof(Vertex);
+
+// Setup indices
+std::vector<uint32_t> indexBuffer = {
+    0, 1, 2, 0, 2, 3,
+    4, 5, 6, 4, 6, 7,
+    8, 9, 10, 8, 10, 11,
+    12, 13, 14, 12, 14, 15,
+    16, 17, 18, 16, 18, 19,
+    20, 21, 22, 20, 22, 23
+};
+uint32_t indexBufferSize = indices.count * sizeof(uint32_t);
+
 /*
  * setImageLayout():
  *    Helper function to transition color buffer layout
@@ -31,7 +177,7 @@ bool MapMemoryTypeToIndex(uint32_t typeBits, VkFlags requirements_mask,
 
 void updateUniformBuffers(void) {
   uboVS.projection = glm::perspective(glm::radians(60.0f),
-                                      (float)(swapchain.displaySize_.width / 3.0f) / (float)swapchain.displaySize_.,
+                                      (float)(swapchain.displaySize_.width / 3.0f) / (float)swapchain.displaySize_.height,
                                       0.1f,
                                       256.0f);
 
@@ -258,7 +404,6 @@ void CreateCommandPool(void) {
 
 void CreateCommandBuffers(void) {
 
-  render.cmdBufferLen_ = swapchain.swapchainLength_;
   render.cmdBuffer_.resize(swapchain.swapchainLength_);
 
   VkCommandBufferAllocateInfo cmdBufferCreateInfo{
@@ -266,7 +411,7 @@ void CreateCommandBuffers(void) {
       .pNext = nullptr,
       .commandPool = render.cmdPool_,
       .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-      .commandBufferCount = render.cmdBufferLen_,
+      .commandBufferCount = static_cast<uint32_t>(render.cmdBuffer_.size()),
   };
   CALL_VK(vkAllocateCommandBuffers(device.device_, &cmdBufferCreateInfo, render.cmdBuffer_.data()));
 
@@ -432,14 +577,11 @@ void CreateFrameBuffers(void) {
 
 void CreateUniformBuffer(void) {
 
-  uniformBuffer.usageFlags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-  uniformBuffer.memoryPropertyFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
   VkBufferCreateInfo createBufferInfo{
       .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
       .pNext = nullptr,
       .size = sizeof(uboVS),
-      .usage = uniformBuffer.usageFlags,
+      .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
       .flags = 0,
       .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
       .pQueueFamilyIndices = &device.queueFamilyIndex_,
@@ -459,7 +601,9 @@ void CreateUniformBuffer(void) {
 
   // Assign the proper memory type for that buffer
   allocInfo.allocationSize = memReq.size;
-  MapMemoryTypeToIndex(memReq.memoryTypeBits, uniformBuffer.memoryPropertyFlags, &allocInfo.memoryTypeIndex);
+  MapMemoryTypeToIndex(memReq.memoryTypeBits,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                       &allocInfo.memoryTypeIndex);
 
   CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &uniformBuffer.memory));
 
@@ -490,7 +634,7 @@ void CreateDescriptorSetLayout(void) {
 
   VkDescriptorSetLayoutCreateInfo descriptorLayout{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-      .bindingCount = setLayoutBindings.size(),
+      .bindingCount = static_cast<uint32_t>(setLayoutBindings.size()),
       .pBindings = setLayoutBindings.data(),
   };
 
@@ -592,9 +736,13 @@ void CreateGraphicsPipeline(void) {
       .depthWriteEnable = VK_TRUE,
       .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
       .depthBoundsTestEnable = VK_FALSE,
-      .back.compareOp = VK_COMPARE_OP_ALWAYS,
       .stencilTestEnable = VK_FALSE,
-      .front = depthStencilState.back,
+      .front.compareOp = VK_COMPARE_OP_ALWAYS,
+      .front.failOp = VK_STENCIL_OP_KEEP,
+      .front.passOp = VK_STENCIL_OP_KEEP,
+      .back.compareOp = VK_COMPARE_OP_ALWAYS,
+      .back.failOp = VK_STENCIL_OP_KEEP,
+      .back.passOp = VK_STENCIL_OP_KEEP,
   };
 
   VkPipelineViewportStateCreateInfo viewportInfo{
@@ -748,7 +896,7 @@ void CreateDescriptorPool(void) {
 
   VkDescriptorPoolCreateInfo descriptorPoolInfo{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-      .poolSizeCount = poolSizes.size(),
+      .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
       .pPoolSizes = poolSizes.data(),
       .maxSets = 2,
   };
@@ -784,78 +932,92 @@ void CreateDescriptorSet(void) {
 }
 
 void BuildCommandBuffers(void) {
-  VkViewport viewports{
-      .minDepth = 0.0f,
-      .maxDepth = 1.0f,
-      .x = 0,
-      .y = 0,
-      .width = (float)swapchain.displaySize_.width,
-      .height = (float)swapchain.displaySize_.height,
+
+  // Command for all buffers
+  VkCommandBufferBeginInfo cmdBufferBeginInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .pInheritanceInfo = nullptr,
   };
 
-  VkRect2D scissor = {.extent = swapchain.displaySize_,
-      .offset = {
-          .x = 0, .y = 0,
-      }};
+  VkClearValue clearValues[2];
+  clearValues[0].color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
+  clearValues[1].depthStencil = { 1.0f, 0 };
 
+  VkRenderPassBeginInfo renderPassBeginInfo{
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+      .pNext = nullptr,
+      .renderPass = render.renderPass_,
+      .renderArea.offset.x = 0,
+      .renderArea.offset.y = 0,
+      .renderArea.extent = swapchain.displaySize_,
+      .clearValueCount = 2,
+      .pClearValues = clearValues};
 
+  for (int32_t i = 0; i < render.cmdBuffer_.size();  i++) {
 
-  for (int bufferIndex = 0; bufferIndex < swapchain.swapchainLength_;
-       bufferIndex++) {
+    renderPassBeginInfo.framebuffer = swapchain.framebuffers_[i];
+
     // We start by creating and declare the "beginning" our command buffer
-    VkCommandBufferBeginInfo cmdBufferBeginInfo{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .pInheritanceInfo = nullptr,
-    };
-    CALL_VK(vkBeginCommandBuffer(render.cmdBuffer_[bufferIndex], &cmdBufferBeginInfo));
-    // transition the display image to color attachment layout
-    setImageLayout(render.cmdBuffer_[bufferIndex],
-                   swapchain.displayImages_[bufferIndex],
-                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    CALL_VK(vkBeginCommandBuffer(render.cmdBuffer_[i], &cmdBufferBeginInfo));
+
 
     // Now we start a renderpass. Any draw command has to be recorded in a
     // renderpass
-    VkClearValue clearVals{
-        .color.float32[0] = 0.0f,
-        .color.float32[1] = 0.0f,
-        .color.float32[2] = 0.0f,
-        .color.float32[3] = 1.0f,
+
+    vkCmdBeginRenderPass(render.cmdBuffer_[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewports{
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f,
+        .x = 0,
+        .y = 0,
+        .width = (float)swapchain.displaySize_.width,
+        .height = (float)swapchain.displaySize_.height,
     };
-    VkRenderPassBeginInfo renderPassBeginInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .pNext = nullptr,
-        .renderPass = render.renderPass_,
-        .framebuffer = swapchain.framebuffers_[bufferIndex],
-        .renderArea = {.offset =
-            {
-                .x = 0, .y = 0,
-            },
-            .extent = swapchain.displaySize_},
-        .clearValueCount = 1,
-        .pClearValues = &clearVals};
-    vkCmdBeginRenderPass(render.cmdBuffer_[bufferIndex], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-    // Bind what is necessary to the command buffer
-    vkCmdBindPipeline(render.cmdBuffer_[bufferIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, gfxPipeline.pipeline_);
+    vkCmdSetViewport(render.cmdBuffer_[i], 0, 1, &viewports);
+
+    VkRect2D scissor = {
+        .extent = swapchain.displaySize_,
+        .offset.x = 0,
+        .offset.y = 0,
+    };
+    vkCmdSetScissor(render.cmdBuffer_[i], 0, 1, &scissor);
+
+    vkCmdBindDescriptorSets(render.cmdBuffer_[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+                            0, 1, &descriptorSet, 0, nullptr);
+
+    vkCmdBindPipeline(render.cmdBuffer_[i], VK_PIPELINE_BIND_POINT_GRAPHICS, gfxPipeline);
+
     VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(render.cmdBuffer_[bufferIndex], 0, 1, &buffers.vertexBuf_, &offset);
+    vkCmdBindVertexBuffers(render.cmdBuffer_[i], 0, 1,  &vertices.buffer, &offset);
 
-    // Draw Triangle
-    vkCmdDraw(render.cmdBuffer_[bufferIndex], 3, 1, 0, 0);
+    // Bind triangle index buffer
+    vkCmdBindIndexBuffer(render.cmdBuffer_[i], indices.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdEndRenderPass(render.cmdBuffer_[bufferIndex]);
-    // transition back to swapchain image to PRESENT_SRC_KHR
-    setImageLayout(render.cmdBuffer_[bufferIndex],
-                   swapchain.displayImages_[bufferIndex],
-                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
-    CALL_VK(vkEndCommandBuffer(render.cmdBuffer_[bufferIndex]));
+    vkCmdDrawIndexed(render.cmdBuffer_[i], indices.count, 1, 0, 0, 1);
+
+    // transition the display image to color attachment layout
+//    setImageLayout(render.cmdBuffer_[i],
+//                   swapchain.displayImages_[i],
+//                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+//                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+//                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+//                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+//
+
+
+
+    vkCmdEndRenderPass(render.cmdBuffer_[i]);
+//    // transition back to swapchain image to PRESENT_SRC_KHR
+//    setImageLayout(render.cmdBuffer_[i],
+//                   swapchain.displayImages_[i],
+//                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+//                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+//                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+//                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    CALL_VK(vkEndCommandBuffer(render.cmdBuffer_[i]));
   }
 
 }
@@ -968,6 +1130,7 @@ bool InitVulkan(android_app* app) {
   CreateDescriptorSet();
 
   // todo move Cube class
+  indices.count = static_cast<uint32_t>(indexBuffer.size());
   CreateBuffers();  // create vertex / index buffers
 
   BuildCommandBuffers();
@@ -981,9 +1144,8 @@ bool InitVulkan(android_app* app) {
 bool IsVulkanReady(void) { return device.initialized_; }
 
 void DeleteVulkan(void) {
-  vkFreeCommandBuffers(device.device_, render.cmdPool_, render.cmdBufferLen_,
-                       render.cmdBuffer_);
-  delete[] render.cmdBuffer_;
+  vkFreeCommandBuffers(device.device_, render.cmdPool_,
+                       render.cmdBuffer_.size(), render.cmdBuffer_.data());
 
   vkDestroyCommandPool(device.device_, render.cmdPool_, nullptr);
   vkDestroyRenderPass(device.device_, render.renderPass_, nullptr);
