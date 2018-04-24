@@ -1,5 +1,5 @@
 #include "VulkanMain.h"
-#include "Cube.h"
+#include "Sensor.h"
 #include "ValidationLayers.h"
 
 const char* APPLICATION_NAME = "Accelerometer_Cube";
@@ -1151,6 +1151,7 @@ void DeleteBuffers(void) {
   vkDestroyBuffer(device.device_, indices.buffer, nullptr);
 }
 
+Sensor AccelSenor;
 // InitVulkan:
 //   Initialize Vulkan Context when android application window is created
 //   upon return, vulkan is ready to draw frames
@@ -1208,14 +1209,12 @@ void DeleteVulkan(void) {
   device.initialized_ = false;
 }
 
+float fakeY, fakeZ;
 // Draw one frame
 bool VulkanDrawFrame(void) {
 
-//  if (viewChanged == true) {
-  rotation.x += 0.05;
-  rotation.y += 0.05;
-    updateUniformBuffers();
-//  }
+  AccelSenor.Update(rotation.y, fakeY, rotation.x, 2.0);
+  updateUniformBuffers();
 
   uint32_t nextIndex;
   // Get the framebuffer index we should draw in
@@ -1237,8 +1236,6 @@ bool VulkanDrawFrame(void) {
   CALL_VK(vkQueueSubmit(device.queue_, 1, &submit_info, VK_NULL_HANDLE));
 
   CALL_VK(vkQueueWaitIdle(device.queue_));
-
-  //LOGI("Drawing frames......");
 
   VkResult result;
   VkPresentInfoKHR presentInfo{

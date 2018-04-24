@@ -16,6 +16,7 @@ add_library( AccelCube SHARED
              ${SRC_DIR}/AndroidMain.cpp
              ${SRC_DIR}/VulkanMain.cpp
              ${SRC_DIR}/ValidationLayers.cpp
+             ${SRC_DIR}/Sensor.cpp
              ${SRC_DIR}/Cube.cpp)
 
 
