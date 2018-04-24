@@ -48,11 +48,6 @@ struct VulkanBufferInfo {
   VkBuffer buffer;
   VkDeviceMemory memory;
   VkDescriptorBufferInfo descriptor;
-  VkDeviceSize size;
-  VkDeviceSize alignment;
-  VkBufferUsageFlags usageFlags;
-  VkMemoryPropertyFlags memoryPropertyFlags;
-  void* mapped = nullptr;
 };
 VulkanBufferInfo uniformBuffer;
 
@@ -80,7 +75,7 @@ struct {
 
 bool viewChanged;
 
-float zoom = -3.5f;
+float zoom = -5.5f;
 glm::vec3 rotation = glm::vec3();
 glm::vec3 cameraPos = glm::vec3();
 
@@ -102,52 +97,6 @@ struct
   VkBuffer buffer;
   uint32_t count;
 } indices;
-
-// Setup vertices
-std::vector<Vertex> vertexBuffer =
-    {
-        { {  1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
-        { { -1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
-        { { -1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
-        { {  1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
-
-        { {  1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
-        { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
-        { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
-        { {  1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
-
-        { {  1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
-        { { -1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
-        { { -1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
-        { {  1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
-
-        { {  1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
-        { { -1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
-        { { -1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
-        { {  1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
-
-        { {  1.0f,  1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
-        { {  1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
-        { {  1.0f, -1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
-        { {  1.0f, -1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
-
-        { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } },
-        { { -1.0f,  1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
-        { { -1.0f, -1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
-        { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } }
-    };
-uint32_t vertexBufferSize = static_cast<uint32_t>(vertexBuffer.size()) * sizeof(Vertex);
-
-// Setup indices
-std::vector<uint32_t> indexBuffer = {
-    0, 1, 2, 0, 2, 3,
-    4, 5, 6, 4, 6, 7,
-    8, 9, 10, 8, 10, 11,
-    12, 13, 14, 12, 14, 15,
-    16, 17, 18, 16, 18, 19,
-    20, 21, 22, 20, 22, 23
-};
-uint32_t indexBufferSize = indices.count * sizeof(uint32_t);
 
 /*
  * setImageLayout():
@@ -178,22 +127,49 @@ bool MapMemoryTypeToIndex(uint32_t typeBits, VkFlags requirements_mask,
 }
 
 void updateUniformBuffers(void) {
-  uboVS.projectionMatrix = glm::perspective(glm::radians(60.0f),
+  uboVS.projectionMatrix = glm::perspective(glm::radians(90.0f),
                                       (float)(swapchain.displaySize_.width) / (float)swapchain.displaySize_.height,
-                                      0.1f,
-                                      256.0f);
+                                      0.01f,
+                                      2000.0f);
 
-  glm::mat4 viewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, zoom));
+  uboVS.viewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, zoom));
 
   uboVS.modelMatrix = glm::mat4(1.0f);
   uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
   uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
   uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
 
-  CALL_VK(vkMapMemory(device.device_, uniformBuffer.memory, 0, VK_WHOLE_SIZE, 0, &uniformBuffer.mapped));
-  memcpy(uniformBuffer.mapped, &uboVS, sizeof(uboVS));
+  uint8_t *pData;
+  CALL_VK(vkMapMemory(device.device_, uniformBuffer.memory, 0, sizeof(uboVS), 0, (void **)&pData));
+  memcpy(pData, &uboVS, sizeof(uboVS));
   vkUnmapMemory(device.device_, uniformBuffer.memory);
+}
 
+VkBool32 getSupportedDepthFormat(VkPhysicalDevice physicalDevice, VkFormat *depthFormat)
+{
+  // Since all depth formats may be optional, we need to find a suitable depth format to use
+  // Start with the highest precision packed format
+  std::vector<VkFormat> depthFormats = {
+      VK_FORMAT_D32_SFLOAT_S8_UINT,
+      VK_FORMAT_D32_SFLOAT,
+      VK_FORMAT_D24_UNORM_S8_UINT,
+      VK_FORMAT_D16_UNORM_S8_UINT,
+      VK_FORMAT_D16_UNORM
+  };
+
+  for (auto& format : depthFormats)
+  {
+    VkFormatProperties formatProps;
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &formatProps);
+    // Format must support depth stencil attachment for optimal tiling
+    if (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+    {
+      *depthFormat = format;
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // Create vulkan device
@@ -443,7 +419,8 @@ void CreateCommandBuffers(void) {
 }
 
 void CreateDepthStencil(void) {
-  depthStencil.format = VK_FORMAT_D16_UNORM; // bad assumption
+  VkBool32 validDepthFormat = getSupportedDepthFormat(device.gpuDevice_, &depthStencil.format);
+  assert(validDepthFormat);
 
   VkImageCreateInfo image = {};
   image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -637,7 +614,7 @@ void CreateUniformBuffer(void) {
 //  uniformBuffer.alignment = memReq.alignment;
 //  uniformBuffer.size = allocInfo.allocationSize;
   uniformBuffer.descriptor.offset = 0;
-  uniformBuffer.descriptor.range = VK_WHOLE_SIZE;
+  uniformBuffer.descriptor.range = sizeof(uboVS);
   uniformBuffer.descriptor.buffer = uniformBuffer.buffer;
 
   updateUniformBuffers();
@@ -651,6 +628,7 @@ void CreateDescriptorSetLayout(void) {
       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       .descriptorCount = 1,
       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+      .pImmutableSamplers = nullptr
   };
 
   setLayoutBindings.push_back(VertexSetLayoutBinding);
@@ -747,8 +725,6 @@ void CreateGraphicsPipeline(void) {
   VkPipelineColorBlendStateCreateInfo colorBlendInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
       .pNext = nullptr,
-      .logicOpEnable = VK_FALSE,
-      .logicOp = VK_LOGIC_OP_COPY,
       .attachmentCount = 1,
       .pAttachments = &attachmentStates,
       .flags = 0,
@@ -775,18 +751,12 @@ void CreateGraphicsPipeline(void) {
       .scissorCount = 1,
   };
 
-//  VkSampleMask sampleMask = ~0u;
   VkPipelineMultisampleStateCreateInfo multisampleInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
       .pNext = nullptr,
       .flags = 0,
       .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-      .sampleShadingEnable = VK_FALSE,
-      .minSampleShading = 0,
-//      .pSampleMask = &sampleMask,
       .pSampleMask = nullptr,
-      .alphaToCoverageEnable = VK_FALSE,
-      .alphaToOneEnable = VK_FALSE,
   };
 
   std::vector<VkDynamicState> dynamicStateEnables = {
@@ -866,7 +836,6 @@ void CreateGraphicsPipeline(void) {
       .pStages = shaderStages,
       .pVertexInputState = &vertexInputInfo,
       .pInputAssemblyState = &inputAssemblyInfo,
-      .pTessellationState = nullptr,
       .pViewportState = &viewportInfo,
       .pRasterizationState = &rasterInfo,
       .pMultisampleState = &multisampleInfo,
@@ -876,8 +845,6 @@ void CreateGraphicsPipeline(void) {
       .layout = pipelineLayout,
       .renderPass = render.renderPass_,
       .subpass = 0,
-      .basePipelineHandle = VK_NULL_HANDLE,
-      .basePipelineIndex = 0,
   };
 
   CALL_VK(vkCreateGraphicsPipelines(device.device_, pipelineCache, 1,
@@ -921,7 +888,7 @@ void CreateDescriptorPool(void) {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
       .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
       .pPoolSizes = poolSizes.data(),
-      .maxSets = 2,
+      .maxSets = 1,
   };
 
   CALL_VK(vkCreateDescriptorPool(device.device_, &descriptorPoolInfo, nullptr, &descriptorPool));
@@ -1048,6 +1015,54 @@ void BuildCommandBuffers(void) {
 // Create our vertex buffer
 bool CreateBuffers(void) {
 
+  // Setup vertices
+  std::vector<Vertex> vertexBuffer =
+      {
+          { {  1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+          { { -1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+          { { -1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+          { {  1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
+
+          { {  1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+          { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+          { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+          { {  1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
+
+          { {  1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
+          { { -1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
+          { { -1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
+          { {  1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
+
+          { {  1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
+          { { -1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
+          { { -1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
+          { {  1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
+
+          { {  1.0f,  1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
+          { {  1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
+          { {  1.0f, -1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
+          { {  1.0f, -1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
+
+          { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } },
+          { { -1.0f,  1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
+          { { -1.0f, -1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
+          { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } }
+      };
+  uint32_t vertexBufferSize = static_cast<uint32_t>(vertexBuffer.size()) * sizeof(Vertex);
+
+// Setup indices
+  std::vector<uint32_t> indexBuffer = {
+      0, 1, 2, 0, 2, 3,
+      4, 5, 6, 4, 6, 7,
+      8, 9, 10, 8, 10, 11,
+      12, 13, 14, 12, 14, 15,
+      16, 17, 18, 16, 18, 19,
+      20, 21, 22, 20, 22, 23
+  };
+  indices.count = static_cast<uint32_t>(indexBuffer.size());
+  uint32_t indexBufferSize = indices.count * sizeof(uint32_t);
+
+
   void* data;
 
   // Create a vertex buffer
@@ -1144,6 +1159,8 @@ bool InitVulkan(android_app* app) {
   CreateDepthStencil();
   CreateRenderPass();
   CreateFrameBuffers();
+  // todo move Cube class
+  CreateBuffers();  // create vertex / index buffers
   CreateUniformBuffer();
   CreateDescriptorSetLayout();
   CreatePipelineLayout();
@@ -1152,9 +1169,7 @@ bool InitVulkan(android_app* app) {
   CreateDescriptorPool();
   CreateDescriptorSet();
 
-  // todo move Cube class
-  indices.count = static_cast<uint32_t>(indexBuffer.size());
-  CreateBuffers();  // create vertex / index buffers
+
 
   BuildCommandBuffers();
 
@@ -1186,9 +1201,11 @@ void DeleteVulkan(void) {
 // Draw one frame
 bool VulkanDrawFrame(void) {
 
-  if (viewChanged == true) {
+//  if (viewChanged == true) {
+  rotation.x += 0.05;
+  rotation.y += 0.05;
     updateUniformBuffers();
-  }
+//  }
 
   uint32_t nextIndex;
   // Get the framebuffer index we should draw in
