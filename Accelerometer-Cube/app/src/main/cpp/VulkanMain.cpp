@@ -174,13 +174,18 @@ VkBool32 getSupportedDepthFormat(VkPhysicalDevice physicalDevice, VkFormat *dept
 
 // Create vulkan device
 void CreateVulkanDevice(ANativeWindow* platformWindow) {
-//  std::vector<const char*> instance_extensions;
-//  std::vector<const char*> device_extensions;
-//
-//  instance_extensions.push_back("VK_KHR_surface");
-//  instance_extensions.push_back("VK_KHR_android_surface");
-//
-//  device_extensions.push_back("VK_KHR_swapchain");
+
+#ifdef VALIDATION_LAYERS
+  // prepare debug and layer objects
+  LayerAndExtensions layerAndExt;
+  layerAndExt.AddInstanceExt(layerAndExt.GetDbgExtName());
+#else
+  std::vector<const char*> instance_extensions;
+  std::vector<const char*> device_extensions;
+  instance_extensions.push_back("VK_KHR_surface");
+  instance_extensions.push_back("VK_KHR_android_surface");
+  device_extensions.push_back("VK_KHR_swapchain");
+#endif
 
   VkApplicationInfo appInfo = {
       .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -192,31 +197,31 @@ void CreateVulkanDevice(ANativeWindow* platformWindow) {
       .pEngineName = "NAVS",
   };
 
-  // TODO add #ifdef USE_DEBUG_EXTENTIONS
-  // prepare debug and layer objects
-  LayerAndExtensions layerAndExt;
-  layerAndExt.AddInstanceExt(layerAndExt.GetDbgExtName());
-
   // **********************************************************
   // Create the Vulkan instance
   VkInstanceCreateInfo instanceCreateInfo{
       .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
       .pNext = nullptr,
       .pApplicationInfo = &appInfo,
-//      .enabledExtensionCount =
-//          static_cast<uint32_t>(instance_extensions.size()),
-//      .ppEnabledExtensionNames = instance_extensions.data(),
-//      .enabledLayerCount = 0,
-//      .ppEnabledLayerNames = nullptr,
+#ifdef VALIDATION_LAYERS
       .enabledExtensionCount = layerAndExt.InstExtCount(),
       .ppEnabledExtensionNames = static_cast<const char* const*>(layerAndExt.InstExtNames()),
       .enabledLayerCount = layerAndExt.InstLayerCount(),
       .ppEnabledLayerNames = static_cast<const char* const*>(layerAndExt.InstLayerNames()),
+#else
+      .enabledExtensionCount = static_cast<uint32_t>(instance_extensions.size()),
+      .ppEnabledExtensionNames = instance_extensions.data(),
+      .enabledLayerCount = 0,
+      .ppEnabledLayerNames = nullptr,
+#endif
   };
 
   CALL_VK(vkCreateInstance(&instanceCreateInfo, nullptr, &device.instance_));
+
+#ifdef VALIDATION_LAYERS
   // Create debug callback obj and connect to vulkan instance
   layerAndExt.HookDbgReportExt(device.instance_);
+#endif
 
   VkAndroidSurfaceCreateInfoKHR createInfo{
       .sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,
@@ -235,7 +240,9 @@ void CreateVulkanDevice(ANativeWindow* platformWindow) {
   CALL_VK(vkEnumeratePhysicalDevices(device.instance_, &gpuCount, tmpGpus));
   device.gpuDevice_ = tmpGpus[0];  // Pick up the first GPU Device
 
+#ifdef VALIDATION_LAYERS
   layerAndExt.InitDevLayersAndExt(device.gpuDevice_);
+#endif
 
   // Find a GFX queue family
   uint32_t queueFamilyCount;
@@ -273,16 +280,19 @@ void CreateVulkanDevice(ANativeWindow* platformWindow) {
       .pNext = nullptr,
       .queueCreateInfoCount = 1,
       .pQueueCreateInfos = &queueCreateInfo,
-//      .enabledLayerCount = 0,
-//      .ppEnabledLayerNames = nullptr,
-//      .enabledExtensionCount = static_cast<uint32_t>(device_extensions.size()),
-//      .ppEnabledExtensionNames = device_extensions.data(),
-//      .pEnabledFeatures = nullptr,
+#ifdef VALIDATION_LAYERS
       .enabledLayerCount = layerAndExt.DevLayerCount(),
       .ppEnabledLayerNames = static_cast<const char* const*>(layerAndExt.DevLayerNames()),
       .enabledExtensionCount = layerAndExt.DevExtCount(),
       .ppEnabledExtensionNames = static_cast<const char* const*>(layerAndExt.DevExtNames()),
       .pEnabledFeatures = nullptr
+#else
+      .enabledLayerCount = 0,
+      .ppEnabledLayerNames = nullptr,
+      .enabledExtensionCount = static_cast<uint32_t>(device_extensions.size()),
+      .ppEnabledExtensionNames = device_extensions.data(),
+      .pEnabledFeatures = nullptr,
+#endif
   };
 
   CALL_VK(vkCreateDevice(device.gpuDevice_, &deviceCreateInfo, nullptr, &device.device_));

@@ -20,6 +20,8 @@
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 
+// Comment out to remove Validation Layers
+//#define VALIDATION_LAYERS
 
 // Initialize vulkan device context
 // after return, vulkan is ready to draw
