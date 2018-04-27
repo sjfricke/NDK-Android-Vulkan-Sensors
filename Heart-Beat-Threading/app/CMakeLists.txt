@@ -9,7 +9,7 @@ set(SRC_DIR src/main/cpp)
 set(VK_VAL_LAYER_SRC_DIR ${ANDROID_NDK}/sources/third_party/vulkan/src)
 include_directories(${VK_VAL_LAYER_SRC_DIR}/include)
 
-add_library( AccelCube SHARED
+add_library( HeartBeat SHARED
 
              ${SRC_DIR}/vulkan_wrapper.cpp
 
@@ -28,7 +28,7 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -u ANativeActivity_o
 
 add_subdirectory(src/main/cpp/glm)
 
-target_link_libraries( AccelCube
+target_link_libraries( HeartBeat
     app-glue
     log
     glm
