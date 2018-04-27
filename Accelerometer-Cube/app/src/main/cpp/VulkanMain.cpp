@@ -746,12 +746,6 @@ void CreateGraphicsPipeline(void) {
       .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
       .depthBoundsTestEnable = VK_FALSE,
       .stencilTestEnable = VK_FALSE,
-      .front.compareOp = VK_COMPARE_OP_ALWAYS,
-      .front.failOp = VK_STENCIL_OP_KEEP,
-      .front.passOp = VK_STENCIL_OP_KEEP,
-      .back.compareOp = VK_COMPARE_OP_ALWAYS,
-      .back.failOp = VK_STENCIL_OP_KEEP,
-      .back.passOp = VK_STENCIL_OP_KEEP,
   };
 
   VkPipelineViewportStateCreateInfo viewportInfo{
