@@ -1,6 +1,15 @@
 #include "VulkanMain.h"
 #include "ValidationLayers.h"
 
+#include "glm/glm.hpp"
+#include "glm/gtc/matrix_transform.hpp"
+#include "glm/gtc/type_ptr.hpp"
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include <assimp/cimport.h>
+
 const char* APPLICATION_NAME = "Heart_Beat_Threading";
 
 // Android Native App pointer...
@@ -79,10 +88,11 @@ glm::vec3 rotation = glm::vec3();
 glm::vec3 cameraPos = glm::vec3();
 
 struct Vertex {
-  float position[3];
-  float color[3];
+  glm::vec3 pos;
+  glm::vec3 normal;
+  glm::vec2 uv;
+  glm::vec3 color;
 };
-
 // Vertex buffer and attributes
 struct {
   VkDeviceMemory memory;
@@ -813,7 +823,7 @@ void CreateGraphicsPipeline(void) {
   vertexInputAttributs[0].location = 0;
   // Position attribute is three 32 bit signed (SFLOAT) floats (R32 G32 B32)
   vertexInputAttributs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-  vertexInputAttributs[0].offset = offsetof(Vertex, position);
+  vertexInputAttributs[0].offset = offsetof(Vertex, pos);
   // Attribute location 1: Color
   vertexInputAttributs[1].binding = 0;
   vertexInputAttributs[1].location = 1;
@@ -1015,6 +1025,94 @@ void BuildCommandBuffers(void) {
 
 }
 
+void LoadModel(std::string filePath) {
+
+  const aiScene* scene;
+  Assimp::Importer Importer;
+
+  // Flags for loading the mesh
+  static const int assimpFlags = aiProcess_FlipWindingOrder | aiProcess_Triangulate | aiProcess_PreTransformVertices;
+
+  // Meshes are stored inside the apk on Android (compressed)
+  // So they need to be loaded via the asset manager
+
+  AAsset* asset = AAssetManager_open(androidAppCtx->activity->assetManager, filePath.c_str(), AASSET_MODE_STREAMING);
+  assert(asset);
+  size_t size = AAsset_getLength(asset);
+
+  assert(size > 0);
+
+  void *meshData = malloc(size);
+  AAsset_read(asset, meshData, size);
+  AAsset_close(asset);
+
+  scene = Importer.ReadFileFromMemory(meshData, size, assimpFlags);
+
+  free(meshData);
+
+  // Generate vertex buffer from ASSIMP scene data
+  float scale = 1.0f;
+  std::vector<Vertex> vertexBuffer;
+
+  // Iterate through all meshes in the file and extract the vertex components
+  for (uint32_t m = 0; m < scene->mNumMeshes; m++)
+  {
+    for (uint32_t v = 0; v < scene->mMeshes[m]->mNumVertices; v++)
+    {
+      Vertex vertex;
+
+      // Use glm make_* functions to convert ASSIMP vectors to glm vectors
+      vertex.pos = glm::make_vec3(&scene->mMeshes[m]->mVertices[v].x) * scale;
+      vertex.normal = glm::make_vec3(&scene->mMeshes[m]->mNormals[v].x);
+      // Texture coordinates and colors may have multiple channels, we only use the first [0] one
+      vertex.uv = glm::make_vec2(&scene->mMeshes[m]->mTextureCoords[0][v].x);
+      // Mesh may not have vertex colors
+      vertex.color = (scene->mMeshes[m]->HasVertexColors(0)) ? glm::make_vec3(&scene->mMeshes[m]->mColors[0][v].r) : glm::vec3(1.0f);
+
+      // Vulkan uses a right-handed NDC (contrary to OpenGL), so simply flip Y-Axis
+      vertex.pos.y *= -1.0f;
+
+      vertexBuffer.push_back(vertex);
+    }
+  }
+  size_t vertexBufferSize = vertexBuffer.size() * sizeof(Vertex);
+
+  // Generate index buffer from ASSIMP scene data
+  std::vector<uint32_t> indexBuffer;
+  for (uint32_t m = 0; m < scene->mNumMeshes; m++)
+  {
+    uint32_t indexBase = static_cast<uint32_t>(indexBuffer.size());
+    for (uint32_t f = 0; f < scene->mMeshes[m]->mNumFaces; f++)
+    {
+      // We assume that all faces are triangulated
+      for (uint32_t i = 0; i < 3; i++)
+      {
+        indexBuffer.push_back(scene->mMeshes[m]->mFaces[f].mIndices[i] + indexBase);
+      }
+    }
+  }
+  size_t indexBufferSize = indexBuffer.size() * sizeof(uint32_t);
+//  model.indices.count = static_cast<uint32_t>(indexBuffer.size());
+
+  // Static mesh should always be device local
+//    // Vertex buffer
+//    CALL_VK(vulkanDevice->createBuffer(
+//        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+//        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+//        vertexBufferSize,
+//        &model.vertices.buffer,
+//        &model.vertices.memory,
+//        vertexBuffer.data()));
+//    // Index buffer
+//    CALL_VK(vulkanDevice->createBuffer(
+//        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+//        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+//        indexBufferSize,
+//        &model.indices.buffer,
+//        &model.indices.memory,
+//        indexBuffer.data()));
+}
+
 // Create our vertex buffer
 bool CreateBuffers(void) {
 
@@ -1149,6 +1247,8 @@ void DeleteBuffers(void) {
 //   upon return, vulkan is ready to draw frames
 bool InitVulkan(android_app* app) {
   androidAppCtx = app;
+
+  LOGE("INIT STARTED");
 
   if (!InitVulkan()) {
     LOGW("Vulkan is unavailable, install vulkan and re-start");
