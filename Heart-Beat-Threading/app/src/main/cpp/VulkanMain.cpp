@@ -5,10 +5,10 @@
 #include "glm/gtc/matrix_transform.hpp"
 #include "glm/gtc/type_ptr.hpp"
 
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
-#include <assimp/cimport.h>
+#include "assimp/Importer.hpp"
+#include "assimp/scene.h"
+#include "assimp/postprocess.h"
+#include "assimp/cimport.h"
 
 const char* APPLICATION_NAME = "Heart_Beat_Threading";
 
@@ -1111,6 +1111,7 @@ void LoadModel(std::string filePath) {
 //        &model.indices.buffer,
 //        &model.indices.memory,
 //        indexBuffer.data()));
+
 }
 
 // Create our vertex buffer

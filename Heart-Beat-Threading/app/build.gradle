@@ -18,11 +18,6 @@ android {
         }
     }
 
-    sourceSets {
-        main {
-            jni.srcDirs = ["../libs"]
-        }
-    }
 
     buildTypes {
         release {
@@ -36,6 +31,7 @@ android {
         }
     }
 }
+
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
