@@ -682,10 +682,12 @@ VkResult loadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, Sha
   assert(androidAppCtx);
   AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_BUFFER);
   size_t fileLength = AAsset_getLength(file);
+  assert(fileLength > 0);
 
   char* fileContent = new char[fileLength];
 
   AAsset_read(file, fileContent, fileLength);
+  AAsset_close(file);
 
   VkShaderModuleCreateInfo shaderModuleCreateInfo{
       .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -1094,7 +1096,6 @@ bool CreateBuffers(void) {
   };
 
   // Assign the proper memory type for that buffer
-  allocInfo.allocationSize = memReq.size;
   assert(MapMemoryTypeToIndex(memReq.memoryTypeBits,
                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                        &allocInfo.memoryTypeIndex));

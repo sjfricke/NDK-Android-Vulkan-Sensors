@@ -93,19 +93,26 @@ struct Vertex {
   glm::vec2 uv;
   glm::vec3 color;
 };
-// Vertex buffer and attributes
-struct {
-  VkDeviceMemory memory;
-  VkBuffer buffer;
-} vertices;
 
-// Index buffer
-struct
-{
-  VkDeviceMemory memory;
-  VkBuffer buffer;
-  uint32_t count;
-} indices;
+struct Model {
+  struct {
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+  } vertices;
+  struct {
+    uint32_t count;
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+  } indices;
+  // Destroys all Vulkan resources created for this model
+  void destroy(VkDevice device)
+  {
+    vkDestroyBuffer(device, vertices.buffer, nullptr);
+    vkFreeMemory(device, vertices.memory, nullptr);
+    vkDestroyBuffer(device, indices.buffer, nullptr);
+    vkFreeMemory(device, indices.memory, nullptr);
+  };
+} model;
 
 /*
  * setImageLayout():
@@ -691,10 +698,12 @@ VkResult loadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, Sha
   assert(androidAppCtx);
   AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_BUFFER);
   size_t fileLength = AAsset_getLength(file);
+  assert(fileLength > 0);
 
   char* fileContent = new char[fileLength];
 
   AAsset_read(file, fileContent, fileLength);
+  AAsset_close(file);
 
   VkShaderModuleCreateInfo shaderModuleCreateInfo{
       .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -1025,7 +1034,69 @@ void BuildCommandBuffers(void) {
 
 }
 
-void LoadModel(std::string filePath) {
+// Creates generic buffer
+VkResult CreateBuffer(VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryPropertyFlags,
+                      VkDeviceSize size, VkBuffer *buffer, VkDeviceMemory *memory,
+                      void *data = nullptr) {
+
+  // Create a vertex buffer
+  VkBufferCreateInfo bufferCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .pNext = nullptr,
+      .size = size,
+      .usage = usageFlags,
+      .flags = 0,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+      .pQueueFamilyIndices = &device.queueFamilyIndex_,
+      .queueFamilyIndexCount = 1,
+  };
+
+  CALL_VK(vkCreateBuffer(device.device_, &bufferCreateInfo, nullptr, buffer));
+
+  VkMemoryRequirements memReq;
+  vkGetBufferMemoryRequirements(device.device_, *buffer, &memReq);
+
+  VkMemoryAllocateInfo allocInfo{
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .pNext = nullptr,
+      .allocationSize = memReq.size,
+      .memoryTypeIndex = 0,  // Memory type assigned in the next step
+  };
+
+  // Assign the proper memory type for that buffer
+  assert(MapMemoryTypeToIndex(memReq.memoryTypeBits, memoryPropertyFlags, &allocInfo.memoryTypeIndex));
+
+  // Allocate memory for the buffer
+  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, memory));
+
+  // If a pointer to the buffer data has been passed, map the buffer and copy over the data
+  if (data != nullptr)
+  {
+    void *mapped;
+    CALL_VK(vkMapMemory(device.device_, *memory, 0, size, 0, &mapped));
+    memcpy(mapped, data, size);
+
+    // If host coherency hasn't been requested, do a manual flush to make writes visible
+    if ((memoryPropertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0) {
+      VkMappedMemoryRange mappedMemoryRange {
+          .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+          .memory = *memory,
+          .offset = 0,
+          .size = size
+      };
+      vkFlushMappedMemoryRanges(device.device_, 1, &mappedMemoryRange);
+    }
+
+    vkUnmapMemory(device.device_, *memory);
+  }
+
+  // Attach the memory to the buffer object
+  CALL_VK(vkBindBufferMemory(device.device_, *buffer, *memory, 0));
+
+  return VK_SUCCESS;
+}
+
+void LoadModel(const char* filePath, float scale) {
 
   const aiScene* scene;
   Assimp::Importer Importer;
@@ -1033,25 +1104,22 @@ void LoadModel(std::string filePath) {
   // Flags for loading the mesh
   static const int assimpFlags = aiProcess_FlipWindingOrder | aiProcess_Triangulate | aiProcess_PreTransformVertices;
 
-  // Meshes are stored inside the apk on Android (compressed)
-  // So they need to be loaded via the asset manager
+  assert(androidAppCtx);
+  AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_STREAMING);
 
-  AAsset* asset = AAssetManager_open(androidAppCtx->activity->assetManager, filePath.c_str(), AASSET_MODE_STREAMING);
-  assert(asset);
-  size_t size = AAsset_getLength(asset);
+  size_t fileLength = AAsset_getLength(file);
+  assert(fileLength > 0);
 
-  assert(size > 0);
+  char* meshData = new char[fileLength];
 
-  void *meshData = malloc(size);
-  AAsset_read(asset, meshData, size);
-  AAsset_close(asset);
+  AAsset_read(file, meshData, fileLength);
+  AAsset_close(file);
 
-  scene = Importer.ReadFileFromMemory(meshData, size, assimpFlags);
+  scene = Importer.ReadFileFromMemory(meshData, fileLength, assimpFlags);
 
-  free(meshData);
+  delete[] meshData;
 
   // Generate vertex buffer from ASSIMP scene data
-  float scale = 1.0f;
   std::vector<Vertex> vertexBuffer;
 
   // Iterate through all meshes in the file and extract the vertex components
@@ -1094,154 +1162,25 @@ void LoadModel(std::string filePath) {
   size_t indexBufferSize = indexBuffer.size() * sizeof(uint32_t);
 //  model.indices.count = static_cast<uint32_t>(indexBuffer.size());
 
-  // Static mesh should always be device local
-//    // Vertex buffer
-//    CALL_VK(vulkanDevice->createBuffer(
-//        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-//        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-//        vertexBufferSize,
-//        &model.vertices.buffer,
-//        &model.vertices.memory,
-//        vertexBuffer.data()));
-//    // Index buffer
-//    CALL_VK(vulkanDevice->createBuffer(
-//        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-//        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-//        indexBufferSize,
-//        &model.indices.buffer,
-//        &model.indices.memory,
-//        indexBuffer.data()));
+  // Vertex buffer
+  CALL_VK(CreateBuffer(
+      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      vertexBufferSize,
+      &model.vertices.buffer,
+      &model.vertices.memory,
+      vertexBuffer.data()));
 
+  // Index buffer
+  CALL_VK(CreateBuffer(
+      VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      indexBufferSize,
+      &model.indices.buffer,
+      &model.indices.memory,
+      indexBuffer.data()));
 }
 
-// Create our vertex buffer
-bool CreateBuffers(void) {
-
-  // Setup vertices
-  std::vector<Vertex> vertexBuffer =
-      {
-          { {  1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
-          { { -1.0f,  1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
-          { { -1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
-          { {  1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },
-
-          { {  1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
-          { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
-          { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
-          { {  1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f } },
-
-          { {  1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
-          { { -1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } },
-          { { -1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
-          { {  1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } },
-
-          { {  1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
-          { { -1.0f,  1.0f,  1.0f }, { 1.0f, 1.0f, 0.0f } },
-          { { -1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
-          { {  1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } },
-
-          { {  1.0f,  1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
-          { {  1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
-          { {  1.0f, -1.0f,  1.0f }, { 1.0f, 0.0f, 1.0f } },
-          { {  1.0f, -1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } },
-
-          { { -1.0f,  1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } },
-          { { -1.0f,  1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
-          { { -1.0f, -1.0f,  1.0f }, { 0.0f, 1.0f, 1.0f } },
-          { { -1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } }
-      };
-  uint32_t vertexBufferSize = static_cast<uint32_t>(vertexBuffer.size()) * sizeof(Vertex);
-
-// Setup indices
-  std::vector<uint32_t> indexBuffer = {
-      0, 1, 2, 0, 2, 3,
-      4, 5, 6, 4, 6, 7,
-      8, 9, 10, 8, 10, 11,
-      12, 13, 14, 12, 14, 15,
-      16, 17, 18, 16, 18, 19,
-      20, 21, 22, 20, 22, 23
-  };
-  indices.count = static_cast<uint32_t>(indexBuffer.size());
-  uint32_t indexBufferSize = indices.count * sizeof(uint32_t);
-
-
-  void* data;
-
-  // Create a vertex buffer
-  VkBufferCreateInfo vertexBufferInfo{
-      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-      .pNext = nullptr,
-      .size = vertexBufferSize,
-      .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      .flags = 0,
-      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-      .pQueueFamilyIndices = &device.queueFamilyIndex_,
-      .queueFamilyIndexCount = 1,
-  };
-
-  CALL_VK(vkCreateBuffer(device.device_, &vertexBufferInfo, nullptr, &vertices.buffer));
-
-  VkMemoryRequirements memReq;
-  vkGetBufferMemoryRequirements(device.device_, vertices.buffer, &memReq);
-
-  VkMemoryAllocateInfo allocInfo{
-      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-      .pNext = nullptr,
-      .allocationSize = memReq.size,
-      .memoryTypeIndex = 0,  // Memory type assigned in the next step
-  };
-
-  // Assign the proper memory type for that buffer
-  allocInfo.allocationSize = memReq.size;
-  assert(MapMemoryTypeToIndex(memReq.memoryTypeBits,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                       &allocInfo.memoryTypeIndex));
-
-  // Allocate memory for the buffer
-  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &vertices.memory));
-
-  CALL_VK(vkMapMemory(device.device_, vertices.memory, 0, allocInfo.allocationSize, 0, &data));
-  memcpy(data, vertexBuffer.data(), vertexBufferSize);
-  vkUnmapMemory(device.device_, vertices.memory);
-
-  CALL_VK(vkBindBufferMemory(device.device_, vertices.buffer, vertices.memory, 0));
-
-  // Index Memory
-  VkBufferCreateInfo indexBufferInfo{
-      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-      .pNext = nullptr,
-      .size = indexBufferSize,
-      .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-      .flags = 0,
-      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-      .pQueueFamilyIndices = &device.queueFamilyIndex_,
-      .queueFamilyIndexCount = 1,
-  };
-
-  CALL_VK(vkCreateBuffer(device.device_, &indexBufferInfo, nullptr, &indices.buffer));
-
-  vkGetBufferMemoryRequirements(device.device_, indices.buffer, &memReq);
-
-  allocInfo.allocationSize = memReq.size;
-  assert(MapMemoryTypeToIndex(memReq.memoryTypeBits,
-                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                              &allocInfo.memoryTypeIndex));
-
-  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &indices.memory));
-
-  CALL_VK(vkMapMemory(device.device_, indices.memory, 0, allocInfo.allocationSize, 0, &data));
-  memcpy(data, indexBuffer.data(), indexBufferSize);
-  vkUnmapMemory(device.device_, indices.memory);
-
-  CALL_VK(vkBindBufferMemory(device.device_, indices.buffer, indices.memory, 0));
-
-  return true;
-}
-
-void DeleteBuffers(void) {
-  vkDestroyBuffer(device.device_, vertices.buffer, nullptr);
-  vkDestroyBuffer(device.device_, indices.buffer, nullptr);
-}
 
 // InitVulkan:
 //   Initialize Vulkan Context when android application window is created
@@ -1263,7 +1202,7 @@ bool InitVulkan(android_app* app) {
   CreateDepthStencil();
   CreateRenderPass();
   CreateFrameBuffers();
-  CreateBuffers();  // create vertex / index buffers
+  LoadModel("models/heart/HeartAnim.fbx", 1.0f);
   CreateUniformBuffer();
   CreateDescriptorSetLayout();
   CreatePipelineLayout();
