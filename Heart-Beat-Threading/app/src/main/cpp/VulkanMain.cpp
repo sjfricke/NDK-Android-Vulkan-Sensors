@@ -10,6 +10,10 @@
 #include "assimp/postprocess.h"
 #include "assimp/cimport.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include <stb/stb_image.h>
+
 const char* APPLICATION_NAME = "Heart_Beat_Threading";
 
 // Android Native App pointer...
@@ -114,11 +118,30 @@ struct Model {
   };
 } model;
 
+struct Texture {
+  VkSampler sampler;
+  VkImage image;
+  VkImageLayout layout;
+  VkDeviceMemory memory;
+  VkImageView view;
+  VkImageType type;
+  VkFormat format;
+  uint32_t width;
+  uint32_t height;
+  uint32_t mipLevels;
+  uint32_t layerCount;
+};
+
+struct Texture heartTexture {
+    .type = VK_IMAGE_TYPE_2D,
+    .format = VK_FORMAT_R8G8B8A8_UNORM,
+};
+
 /*
- * setImageLayout():
+ * SetImageLayout():
  *    Helper function to transition color buffer layout
  */
-void setImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
+void SetImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
                     VkImageLayout oldImageLayout, VkImageLayout newImageLayout,
                     VkPipelineStageFlags srcStages,
                     VkPipelineStageFlags destStages);
@@ -448,53 +471,58 @@ void CreateDepthStencil(void) {
   VkBool32 validDepthFormat = getSupportedDepthFormat(device.gpuDevice_, &depthStencil.format);
   assert(validDepthFormat);
 
-  VkImageCreateInfo image = {};
-  image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  image.pNext = NULL;
-  image.imageType = VK_IMAGE_TYPE_2D;
-  image.format = depthStencil.format;
-  image.extent = {
-      swapchain.displaySize_.width,
-      swapchain.displaySize_.height,
-      1 };
-  image.mipLevels = 1;
-  image.arrayLayers = 1;
-  image.samples = VK_SAMPLE_COUNT_1_BIT;
-  image.tiling = VK_IMAGE_TILING_OPTIMAL;
-  image.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-  image.flags = 0;
+  VkImageCreateInfo image = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      .pNext = NULL,
+      .imageType = VK_IMAGE_TYPE_2D,
+      .format = depthStencil.format,
+      .extent = {
+          swapchain.displaySize_.width,
+          swapchain.displaySize_.height,
+          1 },
+      .mipLevels = 1,
+      .arrayLayers = 1,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .tiling = VK_IMAGE_TILING_OPTIMAL,
+      .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+      .flags = 0,
+  };
 
-  VkMemoryAllocateInfo mem_alloc = {};
-  mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  mem_alloc.pNext = NULL;
-  mem_alloc.allocationSize = 0;
-  mem_alloc.memoryTypeIndex = 0;
 
-  VkImageViewCreateInfo depthStencilView = {};
-  depthStencilView.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  depthStencilView.pNext = NULL;
-  depthStencilView.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  depthStencilView.format = depthStencil.format;
-  depthStencilView.flags = 0;
-  depthStencilView.subresourceRange = {};
-  depthStencilView.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-  depthStencilView.subresourceRange.baseMipLevel = 0;
-  depthStencilView.subresourceRange.levelCount = 1;
-  depthStencilView.subresourceRange.baseArrayLayer = 0;
-  depthStencilView.subresourceRange.layerCount = 1;
-  depthStencilView.components.r = VK_COMPONENT_SWIZZLE_R;
-  depthStencilView.components.g = VK_COMPONENT_SWIZZLE_G;
-  depthStencilView.components.b = VK_COMPONENT_SWIZZLE_B;
-  depthStencilView.components.a = VK_COMPONENT_SWIZZLE_A;
+  VkMemoryAllocateInfo memAllocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .pNext = NULL,
+      .allocationSize = 0,
+      .memoryTypeIndex = 0,
+  };
+
+  VkImageViewCreateInfo depthStencilView = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .pNext = NULL,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = depthStencil.format,
+      .flags = 0,
+      .subresourceRange = {},
+      .subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+      .subresourceRange.baseMipLevel = 0,
+      .subresourceRange.levelCount = 1,
+      .subresourceRange.baseArrayLayer = 0,
+      .subresourceRange.layerCount = 1,
+      .components.r = VK_COMPONENT_SWIZZLE_R,
+      .components.g = VK_COMPONENT_SWIZZLE_G,
+      .components.b = VK_COMPONENT_SWIZZLE_B,
+      .components.a = VK_COMPONENT_SWIZZLE_A,
+  };
 
   VkMemoryRequirements memReqs;
 
   CALL_VK(vkCreateImage(device.device_, &image, nullptr, &depthStencil.image));
   vkGetImageMemoryRequirements(device.device_, depthStencil.image, &memReqs);
-  mem_alloc.allocationSize = memReqs.size;
-  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &mem_alloc.memoryTypeIndex));
+  memAllocInfo.allocationSize = memReqs.size;
+  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                              &memAllocInfo.memoryTypeIndex));
 
-  CALL_VK(vkAllocateMemory(device.device_, &mem_alloc, nullptr, &depthStencil.mem));
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &depthStencil.mem));
   CALL_VK(vkBindImageMemory(device.device_, depthStencil.image, depthStencil.mem, 0));
 
   depthStencilView.image = depthStencil.image;
@@ -523,13 +551,15 @@ void CreateRenderPass(void) {
   attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-  VkAttachmentReference colorReference = {};
-  colorReference.attachment = 0;
-  colorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  VkAttachmentReference colorReference = {
+      .attachment = 0,
+      .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+  };
 
-  VkAttachmentReference depthReference = {};
-  depthReference.attachment = 1;
-  depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  VkAttachmentReference depthReference = {
+      .attachment = 1,
+      .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+  };
 
   VkSubpassDescription subpassDescription{
       .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -620,7 +650,7 @@ void CreateUniformBuffer(void) {
   VkMemoryRequirements memReq;
   vkGetBufferMemoryRequirements(device.device_, uniformBuffer.buffer, &memReq);
 
-  VkMemoryAllocateInfo allocInfo{
+  VkMemoryAllocateInfo memAllocInfo{
       .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
       .pNext = nullptr,
       .allocationSize = memReq.size,
@@ -628,17 +658,17 @@ void CreateUniformBuffer(void) {
   };
 
   // Assign the proper memory type for that buffer
-  allocInfo.allocationSize = memReq.size;
+  memAllocInfo.allocationSize = memReq.size;
   MapMemoryTypeToIndex(memReq.memoryTypeBits,
                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                       &allocInfo.memoryTypeIndex);
+                       &memAllocInfo.memoryTypeIndex);
 
-  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &uniformBuffer.memory));
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &uniformBuffer.memory));
 
   CALL_VK(vkBindBufferMemory(device.device_, uniformBuffer.buffer, uniformBuffer.memory, 0));
 
 //  uniformBuffer.alignment = memReq.alignment;
-//  uniformBuffer.size = allocInfo.allocationSize;
+//  uniformBuffer.size = memAllocInfo.allocationSize;
   uniformBuffer.descriptor.offset = 0;
   uniformBuffer.descriptor.range = sizeof(uboVS);
   uniformBuffer.descriptor.buffer = uniformBuffer.buffer;
@@ -693,7 +723,7 @@ void CreatePipelineLayout(void) {
 }
 
 enum ShaderType { VERTEX_SHADER, FRAGMENT_SHADER };
-VkResult loadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, ShaderType type) {
+VkResult LoadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, ShaderType type) {
   // Read the file
   assert(androidAppCtx);
   AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_BUFFER);
@@ -794,8 +824,8 @@ void CreateGraphicsPipeline(void) {
       .pDynamicStates = dynamicStateEnables.data()};
 
   VkShaderModule vertexShader, fragmentShader;
-  loadShaderFromFile("shaders/heart.vert.spv", &vertexShader, VERTEX_SHADER);
-  loadShaderFromFile("shaders/heart.frag.spv", &fragmentShader, FRAGMENT_SHADER);
+  LoadShaderFromFile("shaders/heart.vert.spv", &vertexShader, VERTEX_SHADER);
+  LoadShaderFromFile("shaders/heart.frag.spv", &fragmentShader, FRAGMENT_SHADER);
 
   // Specify vertex and fragment shader stages
   VkPipelineShaderStageCreateInfo shaderStages[2]{
@@ -1011,7 +1041,7 @@ void BuildCommandBuffers(void) {
     vkCmdDrawIndexed(render.cmdBuffer_[i], indices.count, 1, 0, 0, 1);
 
     // transition the display image to color attachment layout
-//    setImageLayout(render.cmdBuffer_[i],
+//    SetImageLayout(render.cmdBuffer_[i],
 //                   swapchain.displayImages_[i],
 //                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 //                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1023,7 +1053,7 @@ void BuildCommandBuffers(void) {
 
     vkCmdEndRenderPass(render.cmdBuffer_[i]);
 //    // transition back to swapchain image to PRESENT_SRC_KHR
-//    setImageLayout(render.cmdBuffer_[i],
+//    SetImageLayout(render.cmdBuffer_[i],
 //                   swapchain.displayImages_[i],
 //                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 //                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
@@ -1056,7 +1086,7 @@ VkResult CreateBuffer(VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memor
   VkMemoryRequirements memReq;
   vkGetBufferMemoryRequirements(device.device_, *buffer, &memReq);
 
-  VkMemoryAllocateInfo allocInfo{
+  VkMemoryAllocateInfo memAllocInfo{
       .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
       .pNext = nullptr,
       .allocationSize = memReq.size,
@@ -1064,10 +1094,10 @@ VkResult CreateBuffer(VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memor
   };
 
   // Assign the proper memory type for that buffer
-  assert(MapMemoryTypeToIndex(memReq.memoryTypeBits, memoryPropertyFlags, &allocInfo.memoryTypeIndex));
+  assert(MapMemoryTypeToIndex(memReq.memoryTypeBits, memoryPropertyFlags, &memAllocInfo.memoryTypeIndex));
 
   // Allocate memory for the buffer
-  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, memory));
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, memory));
 
   // If a pointer to the buffer data has been passed, map the buffer and copy over the data
   if (data != nullptr)
@@ -1181,14 +1211,208 @@ void LoadModel(const char* filePath, float scale) {
       indexBuffer.data()));
 }
 
+VkResult LoadTextureFromFile(const char* filePath, struct Texture* texure) {
+
+  // Check for optimal tiling supportability
+  VkFormatProperties props;
+  vkGetPhysicalDeviceFormatProperties(device.gpuDevice_, texure->format, &props);
+  assert(props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
+
+  // Read the file:
+  AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath,
+                                    AASSET_MODE_BUFFER);
+  size_t fileLength = AAsset_getLength(file);
+  stbi_uc* fileContent = new unsigned char[fileLength];
+  AAsset_read(file, fileContent, fileLength);
+  AAsset_close(file);
+
+  // Get image data from stb
+  uint32_t imgWidth, imgHeight, n;
+  unsigned char* imageData = stbi_load_from_memory(
+      fileContent, fileLength, reinterpret_cast<int*>(&imgWidth),
+      reinterpret_cast<int*>(&imgHeight), reinterpret_cast<int*>(&n), 4);
+  assert(n == 4);
+  texure->width = imgWidth;
+  texure->height = imgHeight;
+  size_t texureSize = imgWidth * imgHeight * 4;
+
+  // Create a host-visible staging buffer that contains the raw image data
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingMemory;
+
+  VkBufferCreateInfo bufferCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = texureSize,
+      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+  CALL_VK(vkCreateBuffer(device.device_, &bufferCreateInfo, nullptr, &stagingBuffer));
+
+
+  VkMemoryRequirements memReqs;
+  vkGetImageMemoryRequirements(device.device_, stagingBuffer, &memReqs);
+
+  VkMemoryAllocateInfo memAllocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .pNext = nullptr,
+      .allocationSize = memReqs.size,
+      .memoryTypeIndex = 0,
+  };
+  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits,
+                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                              &memAllocInfo.memoryTypeIndex));
+
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &stagingMemory));
+  CALL_VK(vkBindImageMemory(device.device_, stagingBuffer, stagingMemory, 0));
+
+
+  // Copy texture data into staging buffer
+  uint8_t *data;
+  CALL_VK(vkMapMemory(device.device_, stagingMemory, 0, memReqs.size, 0, (void **)&data));
+  memcpy(data, (void*) imageData, texureSize);
+  vkUnmapMemory(device.device_, stagingMemory);
+
+  // Setup buffer copy regions for each mip level, but only 1 for now
+  std::vector<VkBufferImageCopy> bufferCopyRegions;
+  VkBufferImageCopy bufferCopyRegion = {
+      .imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+      .imageSubresource.mipLevel = 0,
+      .imageSubresource.baseArrayLayer = 0,
+      .imageSubresource.layerCount = 1,
+      .imageExtent.width = imgWidth,
+      .imageExtent.height = imgHeight,
+      .imageExtent.depth = 1,
+      .bufferOffset = 0,
+  };
+  bufferCopyRegions.push_back(bufferCopyRegion);
+
+  // Create optimal tiled target image
+  VkImageCreateInfo imageCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      .pNext = nullptr,
+      .imageType = texure->type,
+      .format = texure->format,
+      .extent = {texure->width, texure->height, 1},
+      .mipLevels = 1,
+      .arrayLayers = 1,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .tiling = VK_IMAGE_TILING_OPTIMAL,
+      .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+      .queueFamilyIndexCount = 1,
+      .pQueueFamilyIndices = &device.queueFamilyIndex_,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .flags = 0,
+  };
+
+  CALL_VK(vkCreateImage(device.device_, &imageCreateInfo, nullptr, &texure->image));
+
+  vkGetImageMemoryRequirements(device.device_, texure->image, &memReqs);
+  memAllocInfo.allocationSize = memReqs.size;
+  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                              &memAllocInfo.memoryTypeIndex));
+
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &texure->memory));
+  CALL_VK(vkBindImageMemory(device.device_, texure->image, texure->memory, 0));
+
+  // Create copy commandbuffer
+  VkCommandPoolCreateInfo cmdPoolCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+      .queueFamilyIndex = device.queueFamilyIndex_,
+  };
+
+  VkCommandPool cmdPool;
+  CALL_VK(vkCreateCommandPool(device.device_, &cmdPoolCreateInfo, nullptr,
+                              &cmdPool));
+
+  VkCommandBuffer copyCmd;
+  const VkCommandBufferAllocateInfo cmd = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      .pNext = nullptr,
+      .commandPool = cmdPool,
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+      .commandBufferCount = 1,
+  };
+
+  CALL_VK(vkAllocateCommandBuffers(device.device_, &cmd, &copyCmd));
+  VkCommandBufferBeginInfo cmdBufInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .pInheritanceInfo = nullptr};
+
+  CALL_VK(vkBeginCommandBuffer(copyCmd, &cmdBufInfo));
+
+
+  // transitions image out of UNDEFINED type
+  SetImageLayout(copyCmd, texure->image,
+                 VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // VK_PIPELINE_STAGE_HOST_BIT
+                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT); // VK_PIPELINE_STAGE_TRANSFER_BIT
+
+  // Copy the layers and mip levels from the staging buffer to the optimal tiled image
+  vkCmdCopyBufferToImage(
+      copyCmd,
+      stagingBuffer,
+      texure->image,
+      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      static_cast<uint32_t>(bufferCopyRegions.size()),
+      bufferCopyRegions.data());
+
+  // Change texture image layout to shader read after all faces have been copied
+  texure->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  SetImageLayout(copyCmd, texure->image,
+      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      texure->layout,
+      VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // VK_PIPELINE_STAGE_TRANSFER_BIT
+      VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);// VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+
+
+  CALL_VK(vkEndCommandBuffer(copyCmd));
+
+  VkFenceCreateInfo fenceInfo = {
+      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+  };
+  VkFence fence;
+  CALL_VK(vkCreateFence(device.device_, &fenceInfo, nullptr, &fence));
+
+  VkSubmitInfo submitInfo = {
+      .pNext = nullptr,
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .waitSemaphoreCount = 0,
+      .pWaitSemaphores = nullptr,
+      .pWaitDstStageMask = nullptr,
+      .commandBufferCount = 1,
+      .pCommandBuffers = &copyCmd,
+      .signalSemaphoreCount = 0,
+      .pSignalSemaphores = nullptr,
+  };
+  CALL_VK(vkQueueSubmit(device.queue_, 1, &submitInfo, fence));
+  CALL_VK(vkWaitForFences(device.device_, 1, &fence, VK_TRUE, 100000000));
+  vkDestroyFence(device.device_, fence, nullptr);
+
+  vkFreeCommandBuffers(device.device_, cmdPool, 1, &copyCmd);
+  vkDestroyCommandPool(device.device_, cmdPool, nullptr);
+
+  vkDestroyImage(device.device_, stagingBuffer, nullptr);
+  vkFreeMemory(device.device_, stagingMemory, nullptr);
+
+  stbi_image_free(imageData);
+
+  return VK_SUCCESS;
+}
+
 
 // InitVulkan:
 //   Initialize Vulkan Context when android application window is created
 //   upon return, vulkan is ready to draw frames
 bool InitVulkan(android_app* app) {
   androidAppCtx = app;
-
-  LOGE("INIT STARTED");
 
   if (!InitVulkan()) {
     LOGW("Vulkan is unavailable, install vulkan and re-start");
@@ -1203,6 +1427,7 @@ bool InitVulkan(android_app* app) {
   CreateRenderPass();
   CreateFrameBuffers();
   LoadModel("models/heart/HeartAnim.fbx", 1.0f);
+  LoadTextureFromFile("sample_tex.png", &heartTexture);
   CreateUniformBuffer();
   CreateDescriptorSetLayout();
   CreatePipelineLayout();
@@ -1232,7 +1457,7 @@ void DeleteVulkan(void) {
   vkDestroyRenderPass(device.device_, render.renderPass_, nullptr);
   DeleteSwapChain();
   DeleteGraphicsPipeline();
-  DeleteBuffers();
+  model.destroy(device.device_);
 
   vkDestroyDevice(device.device_, nullptr);
   vkDestroyInstance(device.instance_, nullptr);
@@ -1240,8 +1465,6 @@ void DeleteVulkan(void) {
   device.initialized_ = false;
 }
 
-float fakeY, fakeZ;
-// Draw one frame
 bool VulkanDrawFrame(void) {
 
   updateUniformBuffers();
@@ -1283,10 +1506,10 @@ bool VulkanDrawFrame(void) {
 }
 
 /*
- * setImageLayout():
+ * SetImageLayout():
  *    Helper function to transition color buffer layout
  */
-void setImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
+void SetImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
                     VkImageLayout oldImageLayout, VkImageLayout newImageLayout,
                     VkPipelineStageFlags srcStages,
                     VkPipelineStageFlags destStages) {

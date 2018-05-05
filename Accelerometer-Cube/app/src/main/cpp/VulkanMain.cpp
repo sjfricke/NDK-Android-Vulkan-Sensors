@@ -98,15 +98,6 @@ struct
   uint32_t count;
 } indices;
 
-/*
- * setImageLayout():
- *    Helper function to transition color buffer layout
- */
-void setImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
-                    VkImageLayout oldImageLayout, VkImageLayout newImageLayout,
-                    VkPipelineStageFlags srcStages,
-                    VkPipelineStageFlags destStages);
-
 // A helper function
 bool MapMemoryTypeToIndex(uint32_t typeBits, VkFlags requirements_mask,
                           uint32_t* typeIndex) {
@@ -432,53 +423,59 @@ void CreateDepthStencil(void) {
   VkBool32 validDepthFormat = getSupportedDepthFormat(device.gpuDevice_, &depthStencil.format);
   assert(validDepthFormat);
 
-  VkImageCreateInfo image = {};
-  image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  image.pNext = NULL;
-  image.imageType = VK_IMAGE_TYPE_2D;
-  image.format = depthStencil.format;
-  image.extent = {
-      swapchain.displaySize_.width,
-      swapchain.displaySize_.height,
-      1 };
-  image.mipLevels = 1;
-  image.arrayLayers = 1;
-  image.samples = VK_SAMPLE_COUNT_1_BIT;
-  image.tiling = VK_IMAGE_TILING_OPTIMAL;
-  image.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-  image.flags = 0;
+  VkImageCreateInfo image = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      .pNext = NULL,
+      .imageType = VK_IMAGE_TYPE_2D,
+      .format = depthStencil.format,
+      .extent = {
+          swapchain.displaySize_.width,
+          swapchain.displaySize_.height,
+          1 },
+      .mipLevels = 1,
+      .arrayLayers = 1,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .tiling = VK_IMAGE_TILING_OPTIMAL,
+      .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+      .flags = 0,
+  };
 
-  VkMemoryAllocateInfo mem_alloc = {};
-  mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  mem_alloc.pNext = NULL;
-  mem_alloc.allocationSize = 0;
-  mem_alloc.memoryTypeIndex = 0;
 
-  VkImageViewCreateInfo depthStencilView = {};
-  depthStencilView.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  depthStencilView.pNext = NULL;
-  depthStencilView.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  depthStencilView.format = depthStencil.format;
-  depthStencilView.flags = 0;
-  depthStencilView.subresourceRange = {};
-  depthStencilView.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-  depthStencilView.subresourceRange.baseMipLevel = 0;
-  depthStencilView.subresourceRange.levelCount = 1;
-  depthStencilView.subresourceRange.baseArrayLayer = 0;
-  depthStencilView.subresourceRange.layerCount = 1;
-  depthStencilView.components.r = VK_COMPONENT_SWIZZLE_R;
-  depthStencilView.components.g = VK_COMPONENT_SWIZZLE_G;
-  depthStencilView.components.b = VK_COMPONENT_SWIZZLE_B;
-  depthStencilView.components.a = VK_COMPONENT_SWIZZLE_A;
+  VkMemoryAllocateInfo memAllocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .pNext = NULL,
+      .allocationSize = 0,
+      .memoryTypeIndex = 0,
+  };
+
+  VkImageViewCreateInfo depthStencilView = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .pNext = NULL,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = depthStencil.format,
+      .flags = 0,
+      .subresourceRange = {},
+      .subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+      .subresourceRange.baseMipLevel = 0,
+      .subresourceRange.levelCount = 1,
+      .subresourceRange.baseArrayLayer = 0,
+      .subresourceRange.layerCount = 1,
+      .components.r = VK_COMPONENT_SWIZZLE_R,
+      .components.g = VK_COMPONENT_SWIZZLE_G,
+      .components.b = VK_COMPONENT_SWIZZLE_B,
+      .components.a = VK_COMPONENT_SWIZZLE_A,
+  };
+
 
   VkMemoryRequirements memReqs;
 
   CALL_VK(vkCreateImage(device.device_, &image, nullptr, &depthStencil.image));
   vkGetImageMemoryRequirements(device.device_, depthStencil.image, &memReqs);
-  mem_alloc.allocationSize = memReqs.size;
-  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &mem_alloc.memoryTypeIndex));
+  memAllocInfo.allocationSize = memReqs.size;
+  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                              &memAllocInfo.memoryTypeIndex));
 
-  CALL_VK(vkAllocateMemory(device.device_, &mem_alloc, nullptr, &depthStencil.mem));
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &depthStencil.mem));
   CALL_VK(vkBindImageMemory(device.device_, depthStencil.image, depthStencil.mem, 0));
 
   depthStencilView.image = depthStencil.image;
@@ -507,13 +504,16 @@ void CreateRenderPass(void) {
   attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-  VkAttachmentReference colorReference = {};
-  colorReference.attachment = 0;
-  colorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  VkAttachmentReference colorReference = {
+      .attachment = 0,
+      .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+  };
 
-  VkAttachmentReference depthReference = {};
-  depthReference.attachment = 1;
-  depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  VkAttachmentReference depthReference = {
+      .attachment = 1,
+      .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+  };
+
 
   VkSubpassDescription subpassDescription{
       .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -604,7 +604,7 @@ void CreateUniformBuffer(void) {
   VkMemoryRequirements memReq;
   vkGetBufferMemoryRequirements(device.device_, uniformBuffer.buffer, &memReq);
 
-  VkMemoryAllocateInfo allocInfo{
+  VkMemoryAllocateInfo memAllocInfo{
       .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
       .pNext = nullptr,
       .allocationSize = memReq.size,
@@ -612,12 +612,12 @@ void CreateUniformBuffer(void) {
   };
 
   // Assign the proper memory type for that buffer
-  allocInfo.allocationSize = memReq.size;
+  memAllocInfo.allocationSize = memReq.size;
   MapMemoryTypeToIndex(memReq.memoryTypeBits,
                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                       &allocInfo.memoryTypeIndex);
+                       &memAllocInfo.memoryTypeIndex);
 
-  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &uniformBuffer.memory));
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &uniformBuffer.memory));
 
   CALL_VK(vkBindBufferMemory(device.device_, uniformBuffer.buffer, uniformBuffer.memory, 0));
 
@@ -677,7 +677,7 @@ void CreatePipelineLayout(void) {
 }
 
 enum ShaderType { VERTEX_SHADER, FRAGMENT_SHADER };
-VkResult loadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, ShaderType type) {
+VkResult LoadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, ShaderType type) {
   // Read the file
   assert(androidAppCtx);
   AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_BUFFER);
@@ -778,8 +778,8 @@ void CreateGraphicsPipeline(void) {
       .pDynamicStates = dynamicStateEnables.data()};
 
   VkShaderModule vertexShader, fragmentShader;
-  loadShaderFromFile("shaders/cube.vert.spv", &vertexShader, VERTEX_SHADER);
-  loadShaderFromFile("shaders/cube.frag.spv", &fragmentShader, FRAGMENT_SHADER);
+  LoadShaderFromFile("shaders/cube.vert.spv", &vertexShader, VERTEX_SHADER);
+  LoadShaderFromFile("shaders/cube.frag.spv", &fragmentShader, FRAGMENT_SHADER);
 
   // Specify vertex and fragment shader stages
   VkPipelineShaderStageCreateInfo shaderStages[2]{
@@ -994,25 +994,8 @@ void BuildCommandBuffers(void) {
 
     vkCmdDrawIndexed(render.cmdBuffer_[i], indices.count, 1, 0, 0, 1);
 
-    // transition the display image to color attachment layout
-//    setImageLayout(render.cmdBuffer_[i],
-//                   swapchain.displayImages_[i],
-//                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-//                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-//                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-//                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-//
-
-
-
     vkCmdEndRenderPass(render.cmdBuffer_[i]);
-//    // transition back to swapchain image to PRESENT_SRC_KHR
-//    setImageLayout(render.cmdBuffer_[i],
-//                   swapchain.displayImages_[i],
-//                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-//                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-//                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-//                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
     CALL_VK(vkEndCommandBuffer(render.cmdBuffer_[i]));
   }
 
@@ -1088,7 +1071,7 @@ bool CreateBuffers(void) {
   VkMemoryRequirements memReq;
   vkGetBufferMemoryRequirements(device.device_, vertices.buffer, &memReq);
 
-  VkMemoryAllocateInfo allocInfo{
+  VkMemoryAllocateInfo memAllocInfo{
       .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
       .pNext = nullptr,
       .allocationSize = memReq.size,
@@ -1098,12 +1081,12 @@ bool CreateBuffers(void) {
   // Assign the proper memory type for that buffer
   assert(MapMemoryTypeToIndex(memReq.memoryTypeBits,
                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                       &allocInfo.memoryTypeIndex));
+                       &memAllocInfo.memoryTypeIndex));
 
   // Allocate memory for the buffer
-  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &vertices.memory));
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &vertices.memory));
 
-  CALL_VK(vkMapMemory(device.device_, vertices.memory, 0, allocInfo.allocationSize, 0, &data));
+  CALL_VK(vkMapMemory(device.device_, vertices.memory, 0, memAllocInfo.allocationSize, 0, &data));
   memcpy(data, vertexBuffer.data(), vertexBufferSize);
   vkUnmapMemory(device.device_, vertices.memory);
 
@@ -1125,14 +1108,14 @@ bool CreateBuffers(void) {
 
   vkGetBufferMemoryRequirements(device.device_, indices.buffer, &memReq);
 
-  allocInfo.allocationSize = memReq.size;
+  memAllocInfo.allocationSize = memReq.size;
   assert(MapMemoryTypeToIndex(memReq.memoryTypeBits,
                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                              &allocInfo.memoryTypeIndex));
+                              &memAllocInfo.memoryTypeIndex));
 
-  CALL_VK(vkAllocateMemory(device.device_, &allocInfo, nullptr, &indices.memory));
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &indices.memory));
 
-  CALL_VK(vkMapMemory(device.device_, indices.memory, 0, allocInfo.allocationSize, 0, &data));
+  CALL_VK(vkMapMemory(device.device_, indices.memory, 0, memAllocInfo.allocationSize, 0, &data));
   memcpy(data, indexBuffer.data(), indexBufferSize);
   vkUnmapMemory(device.device_, indices.memory);
 
@@ -1245,78 +1228,4 @@ bool VulkanDrawFrame(void) {
   };
   vkQueuePresentKHR(device.queue_, &presentInfo);
   return true;
-}
-
-/*
- * setImageLayout():
- *    Helper function to transition color buffer layout
- */
-void setImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
-                    VkImageLayout oldImageLayout, VkImageLayout newImageLayout,
-                    VkPipelineStageFlags srcStages,
-                    VkPipelineStageFlags destStages) {
-  VkImageMemoryBarrier imageMemoryBarrier = {
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-      .pNext = NULL,
-      .srcAccessMask = 0,
-      .dstAccessMask = 0,
-      .oldLayout = oldImageLayout,
-      .newLayout = newImageLayout,
-      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .image = image,
-      .subresourceRange =
-          {
-              .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-              .baseMipLevel = 0,
-              .levelCount = 1,
-              .baseArrayLayer = 0,
-              .layerCount = 1,
-          },
-  };
-
-  switch (oldImageLayout) {
-    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-      imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-      imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_PREINITIALIZED:
-      imageMemoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-      break;
-
-    default:
-      break;
-  }
-
-  switch (newImageLayout) {
-    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask =
-          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-      break;
-
-    default:
-      break;
-  }
-
-  vkCmdPipelineBarrier(cmdBuffer, srcStages, destStages, 0, 0, NULL, 0, NULL, 1, &imageMemoryBarrier);
 }
