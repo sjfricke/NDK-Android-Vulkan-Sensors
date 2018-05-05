@@ -82,14 +82,13 @@ struct
 struct {
   glm::mat4 projectionMatrix;
   glm::mat4 modelMatrix;
-  glm::mat4 viewMatrix;
+  glm::vec4 lightPos = glm::vec4(25.0f, 5.0f, 5.0f, 1.0f);
+//  glm::mat4 viewMatrix;
 } uboVS;
 
-bool viewChanged;
-
-float zoom = -5.5f;
-glm::vec3 rotation = glm::vec3();
-glm::vec3 cameraPos = glm::vec3();
+float zoom = -30.5f;
+glm::vec3 rotation = glm::vec3(-29.0f, 172.5f, 0.0f);
+glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 0.0f);
 
 struct Vertex {
   glm::vec3 pos;
@@ -97,6 +96,12 @@ struct Vertex {
   glm::vec2 uv;
   glm::vec3 color;
 };
+
+struct {
+  VkPipelineVertexInputStateCreateInfo inputState;
+  std::vector<VkVertexInputBindingDescription> bindingDescriptions;
+  std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
+} vertices;
 
 struct Model {
   struct {
@@ -166,14 +171,14 @@ bool MapMemoryTypeToIndex(uint32_t typeBits, VkFlags requirements_mask,
 }
 
 void updateUniformBuffers(void) {
-  uboVS.projectionMatrix = glm::perspective(glm::radians(90.0f),
+  uboVS.projectionMatrix = glm::perspective(glm::radians(60.0f),
                                       (float)(swapchain.displaySize_.width) / (float)swapchain.displaySize_.height,
                                       0.01f,
                                       2000.0f);
 
-  uboVS.viewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, zoom));
+  glm::mat4 viewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, zoom));
 
-  uboVS.modelMatrix = glm::mat4(1.0f);
+  uboVS.modelMatrix = viewMatrix * glm::translate(glm::mat4(1.0f), cameraPos);
   uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
   uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
   uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
@@ -870,6 +875,52 @@ void CreateTexture(const char* filePath, struct Texture* texture) {
   CALL_VK(vkCreateImageView(device.device_, &view, nullptr, &texture->view));
 }
 
+void CreateVertexDescriptions() {
+  // Binding description
+  vertices.bindingDescriptions.resize(1);
+  vertices.bindingDescriptions[0].binding = 0;
+  vertices.bindingDescriptions[0].stride = sizeof(Vertex);
+  vertices.bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  // Attribute descriptions
+  // Describes memory layout and shader positions
+  vertices.attributeDescriptions.resize(4);
+  // Location 0 : Position
+  vertices.attributeDescriptions[0].binding = 0;
+  vertices.attributeDescriptions[0].location = 0;
+  vertices.attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  vertices.attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+  // Location 1 : Normal
+  vertices.attributeDescriptions[1].binding = 0;
+  vertices.attributeDescriptions[1].location = 1;
+  vertices.attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+  vertices.attributeDescriptions[1].offset = offsetof(Vertex, normal);
+
+  // Location 2 : Texture coordinates
+  vertices.attributeDescriptions[2].binding = 0;
+  vertices.attributeDescriptions[2].location = 2;
+  vertices.attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+  vertices.attributeDescriptions[2].offset = offsetof(Vertex, uv);
+
+  // Location 3 : Color
+  vertices.attributeDescriptions[3].binding = 0;
+  vertices.attributeDescriptions[3].location = 3;
+  vertices.attributeDescriptions[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+  vertices.attributeDescriptions[3].offset = offsetof(Vertex, color);
+
+  VkPipelineVertexInputStateCreateInfo vertexInputInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .pNext = nullptr,
+      .vertexBindingDescriptionCount = static_cast<uint32_t>(vertices.bindingDescriptions.size()),
+      .pVertexBindingDescriptions = vertices.bindingDescriptions.data(),
+      .vertexAttributeDescriptionCount = static_cast<uint32_t>(vertices.attributeDescriptions.size()),
+      .pVertexAttributeDescriptions = vertices.attributeDescriptions.data(),
+  };
+
+  vertices.inputState = vertexInputInfo;
+}
+
 void CreateUniformBuffer(void) {
 
   VkBufferCreateInfo createBufferInfo{
@@ -916,15 +967,23 @@ void CreateUniformBuffer(void) {
 void CreateDescriptorSetLayout(void) {
   std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings;
 
-  VkDescriptorSetLayoutBinding VertexSetLayoutBinding {
+  VkDescriptorSetLayoutBinding vertexSetLayoutBinding {
       .binding = 0,
       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       .descriptorCount = 1,
       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
       .pImmutableSamplers = nullptr
   };
+  VkDescriptorSetLayoutBinding fragmentSetLayoutBinding {
+      .binding = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+      .pImmutableSamplers = nullptr
+  };
 
-  setLayoutBindings.push_back(VertexSetLayoutBinding);
+  setLayoutBindings.push_back(vertexSetLayoutBinding);
+  setLayoutBindings.push_back(fragmentSetLayoutBinding);
 
   VkDescriptorSetLayoutCreateInfo descriptorLayout{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -933,7 +992,6 @@ void CreateDescriptorSetLayout(void) {
   };
 
   CALL_VK(vkCreateDescriptorSetLayout(device.device_, &descriptorLayout, nullptr, &descriptorSetLayout));
-
 }
 
 void CreatePipelineLayout(void) {
@@ -959,8 +1017,7 @@ void CreatePipelineLayout(void) {
 
 }
 
-enum ShaderType { VERTEX_SHADER, FRAGMENT_SHADER };
-VkResult LoadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, ShaderType type) {
+VkResult LoadShaderFromFile(const char* filePath, VkShaderModule* shaderOut) {
   // Read the file
   assert(androidAppCtx);
   AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_BUFFER);
@@ -1005,13 +1062,13 @@ void CreateGraphicsPipeline(void) {
       .depthClampEnable = VK_FALSE,
       .rasterizerDiscardEnable = VK_FALSE,
       .polygonMode = VK_POLYGON_MODE_FILL,
-      .cullMode = VK_CULL_MODE_NONE,
+      .cullMode = VK_CULL_MODE_BACK_BIT,
       .frontFace = VK_FRONT_FACE_CLOCKWISE,
       .depthBiasEnable = VK_FALSE,
       .lineWidth = 1.0f,
   };
 
-  VkPipelineColorBlendAttachmentState attachmentStates{
+  VkPipelineColorBlendAttachmentState blendAttachmentState{
       .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
       .blendEnable = VK_FALSE,
@@ -1021,7 +1078,7 @@ void CreateGraphicsPipeline(void) {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
       .pNext = nullptr,
       .attachmentCount = 1,
-      .pAttachments = &attachmentStates,
+      .pAttachments = &blendAttachmentState,
       .flags = 0,
   };
   VkPipelineDepthStencilStateCreateInfo depthStencilState {
@@ -1061,8 +1118,8 @@ void CreateGraphicsPipeline(void) {
       .pDynamicStates = dynamicStateEnables.data()};
 
   VkShaderModule vertexShader, fragmentShader;
-  LoadShaderFromFile("shaders/heart.vert.spv", &vertexShader, VERTEX_SHADER);
-  LoadShaderFromFile("shaders/heart.frag.spv", &fragmentShader, FRAGMENT_SHADER);
+  LoadShaderFromFile("shaders/heart.vert.spv", &vertexShader);
+  LoadShaderFromFile("shaders/heart.frag.spv", &fragmentShader);
 
   // Specify vertex and fragment shader stages
   VkPipelineShaderStageCreateInfo shaderStages[2]{
@@ -1085,36 +1142,6 @@ void CreateGraphicsPipeline(void) {
           .pName = "main",
       }};
 
-  // Specify vertex input state
-  VkVertexInputBindingDescription vertexInputBinding{
-      .binding = 0,
-      .stride = sizeof(Vertex),
-      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-  };
-
-  // Inpute attribute bindings describe shader attribute locations and memory layouts
-  std::array<VkVertexInputAttributeDescription, 2> vertexInputAttributs;
-  // Attribute location 0: Position
-  vertexInputAttributs[0].binding = 0;
-  vertexInputAttributs[0].location = 0;
-  // Position attribute is three 32 bit signed (SFLOAT) floats (R32 G32 B32)
-  vertexInputAttributs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-  vertexInputAttributs[0].offset = offsetof(Vertex, pos);
-  // Attribute location 1: Color
-  vertexInputAttributs[1].binding = 0;
-  vertexInputAttributs[1].location = 1;
-  // Color attribute is three 32 bit signed (SFLOAT) floats (R32 G32 B32)
-  vertexInputAttributs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-  vertexInputAttributs[1].offset = offsetof(Vertex, color);
-
-  VkPipelineVertexInputStateCreateInfo vertexInputInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-      .pNext = nullptr,
-      .vertexBindingDescriptionCount = 1,
-      .pVertexBindingDescriptions = &vertexInputBinding,
-      .vertexAttributeDescriptionCount = 2,
-      .pVertexAttributeDescriptions = vertexInputAttributs.data(),
-  };
 
   // Create the pipeline
   VkGraphicsPipelineCreateInfo pipelineCreateInfo{
@@ -1123,7 +1150,7 @@ void CreateGraphicsPipeline(void) {
       .flags = 0,
       .stageCount = 2,
       .pStages = shaderStages,
-      .pVertexInputState = &vertexInputInfo,
+      .pVertexInputState = &vertices.inputState,
       .pInputAssemblyState = &inputAssemblyInfo,
       .pViewportState = &viewportInfo,
       .pRasterizationState = &rasterInfo,
@@ -1167,11 +1194,17 @@ void CreateSyncronization(void) {
 void CreateDescriptorPool(void) {
   std::vector<VkDescriptorPoolSize> poolSizes;
 
-  VkDescriptorPoolSize descriptorPoolSize{
+  VkDescriptorPoolSize descriptorPoolUniform{
       .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       .descriptorCount = 1,
   };
-  poolSizes.push_back(descriptorPoolSize);
+  VkDescriptorPoolSize descriptorPoolSample{
+      .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+  };
+
+  poolSizes.push_back(descriptorPoolUniform);
+  poolSizes.push_back(descriptorPoolSample);
 
   VkDescriptorPoolCreateInfo descriptorPoolInfo{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -1194,9 +1227,15 @@ void CreateDescriptorSet(void) {
 
   CALL_VK(vkAllocateDescriptorSets(device.device_, &allocInfo, &descriptorSet));
 
+  VkDescriptorImageInfo texDescriptor = {
+      .sampler = heartTexture.sampler,
+      .imageView = heartTexture.view,
+      .imageLayout = heartTexture.layout,
+  };
+
   std::vector<VkWriteDescriptorSet> writeDescriptorSets;
 
-  VkWriteDescriptorSet writeDescriptorSet{
+  VkWriteDescriptorSet writeDescriptorSetUniform{
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
       .dstSet = descriptorSet,
       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -1204,8 +1243,17 @@ void CreateDescriptorSet(void) {
       .pBufferInfo = &uniformBuffer.descriptor,
       .descriptorCount = 1,
   };
+  VkWriteDescriptorSet writeDescriptorSetSampler{
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = descriptorSet,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .dstBinding = 1,
+      .pImageInfo = &texDescriptor,
+      .descriptorCount = 1,
+  };
 
-  writeDescriptorSets.push_back(writeDescriptorSet);
+  writeDescriptorSets.push_back(writeDescriptorSetUniform);
+  writeDescriptorSets.push_back(writeDescriptorSetSampler);
 
   vkUpdateDescriptorSets(device.device_, writeDescriptorSets.size(), writeDescriptorSets.data(), 0, NULL);
 }
@@ -1270,12 +1318,12 @@ void BuildCommandBuffers(void) {
     vkCmdBindPipeline(render.cmdBuffer_[i], VK_PIPELINE_BIND_POINT_GRAPHICS, gfxPipeline);
 
     VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(render.cmdBuffer_[i], 0, 1,  &vertices.buffer, &offset);
+    vkCmdBindVertexBuffers(render.cmdBuffer_[i], 0, 1,  &model.vertices.buffer, &offset);
 
     // Bind triangle index buffer
-    vkCmdBindIndexBuffer(render.cmdBuffer_[i], indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(render.cmdBuffer_[i], model.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdDrawIndexed(render.cmdBuffer_[i], indices.count, 1, 0, 0, 1);
+    vkCmdDrawIndexed(render.cmdBuffer_[i], model.indices.count, 1, 0, 0, 0);
 
     // transition the display image to color attachment layout
 //    SetImageLayout(render.cmdBuffer_[i],
@@ -1469,6 +1517,7 @@ bool InitVulkan(android_app* app) {
   CreateFrameBuffers();
   LoadModel("models/heart/HeartAnim.fbx", 1.0f);
   CreateTexture("sample_tex.png", &heartTexture);
+  CreateVertexDescriptions();
   CreateUniformBuffer();
   CreateDescriptorSetLayout();
   CreatePipelineLayout();
@@ -1481,7 +1530,6 @@ bool InitVulkan(android_app* app) {
 
   BuildCommandBuffers();
 
-  viewChanged = false;
   device.initialized_ = true;
   return true;
 }

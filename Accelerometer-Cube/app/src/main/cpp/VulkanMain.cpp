@@ -633,7 +633,7 @@ void CreateUniformBuffer(void) {
 void CreateDescriptorSetLayout(void) {
   std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings;
 
-  VkDescriptorSetLayoutBinding VertexSetLayoutBinding {
+  VkDescriptorSetLayoutBinding vertexSetLayoutBinding {
       .binding = 0,
       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       .descriptorCount = 1,
@@ -641,7 +641,7 @@ void CreateDescriptorSetLayout(void) {
       .pImmutableSamplers = nullptr
   };
 
-  setLayoutBindings.push_back(VertexSetLayoutBinding);
+  setLayoutBindings.push_back(vertexSetLayoutBinding);
 
   VkDescriptorSetLayoutCreateInfo descriptorLayout{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -676,8 +676,7 @@ void CreatePipelineLayout(void) {
 
 }
 
-enum ShaderType { VERTEX_SHADER, FRAGMENT_SHADER };
-VkResult LoadShaderFromFile(const char* filePath, VkShaderModule* shaderOut, ShaderType type) {
+VkResult LoadShaderFromFile(const char* filePath, VkShaderModule* shaderOut) {
   // Read the file
   assert(androidAppCtx);
   AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_BUFFER);
@@ -728,7 +727,7 @@ void CreateGraphicsPipeline(void) {
       .lineWidth = 1.0f,
   };
 
-  VkPipelineColorBlendAttachmentState attachmentStates{
+  VkPipelineColorBlendAttachmentState blendAttachmentState{
       .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
       .blendEnable = VK_FALSE,
@@ -738,7 +737,7 @@ void CreateGraphicsPipeline(void) {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
       .pNext = nullptr,
       .attachmentCount = 1,
-      .pAttachments = &attachmentStates,
+      .pAttachments = &blendAttachmentState,
       .flags = 0,
   };
   VkPipelineDepthStencilStateCreateInfo depthStencilState {
@@ -778,8 +777,8 @@ void CreateGraphicsPipeline(void) {
       .pDynamicStates = dynamicStateEnables.data()};
 
   VkShaderModule vertexShader, fragmentShader;
-  LoadShaderFromFile("shaders/cube.vert.spv", &vertexShader, VERTEX_SHADER);
-  LoadShaderFromFile("shaders/cube.frag.spv", &fragmentShader, FRAGMENT_SHADER);
+  LoadShaderFromFile("shaders/cube.vert.spv", &vertexShader);
+  LoadShaderFromFile("shaders/cube.frag.spv", &fragmentShader);
 
   // Specify vertex and fragment shader stages
   VkPipelineShaderStageCreateInfo shaderStages[2]{
