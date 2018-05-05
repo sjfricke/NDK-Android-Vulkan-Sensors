@@ -6,7 +6,7 @@ include_directories(${APP_GLUE_DIR})
 add_library( app-glue STATIC ${APP_GLUE_DIR}/android_native_app_glue.c)
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/main/cpp)
-set(LIBS_DIR libs)
+set(LIBS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs)
 
 set(VK_VAL_LAYER_SRC_DIR ${ANDROID_NDK}/sources/third_party/vulkan/src)
 include_directories(${VK_VAL_LAYER_SRC_DIR}/include)
@@ -19,6 +19,9 @@ add_library( HeartBeat SHARED
              ${SRC_DIR}/VulkanMain.cpp
              ${SRC_DIR}/ValidationLayers.cpp
              ${SRC_DIR}/Sensor.cpp)
+
+target_include_directories( HeartBeat PRIVATE
+    ${LIBS_DIR})
 
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -fexceptions \
