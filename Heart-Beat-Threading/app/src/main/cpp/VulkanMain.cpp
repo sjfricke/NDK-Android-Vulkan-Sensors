@@ -269,7 +269,7 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
                               &memAllocInfo.memoryTypeIndex));
 
   CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &stagingMemory));
-  CALL_VK(vkBindImageMemory(device.device_, stagingBuffer, stagingMemory, 0));
+  CALL_VK(vkBindBufferMemory(device.device_, stagingBuffer, stagingMemory, 0));
 
 
   // Copy texture data into staging buffer
@@ -315,6 +315,7 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
 
   vkGetImageMemoryRequirements(device.device_, texture->image, &memReqs);
   memAllocInfo.allocationSize = memReqs.size;
+
   assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                               &memAllocInfo.memoryTypeIndex));
 
@@ -1424,13 +1425,17 @@ void LoadModel(const char* filePath, float scale) {
 
   size_t fileLength = AAsset_getLength(file);
   assert(fileLength > 0);
-
   char* meshData = new char[fileLength];
 
   AAsset_read(file, meshData, fileLength);
+
   AAsset_close(file);
 
   scene = Importer.ReadFileFromMemory(meshData, fileLength, assimpFlags);
+  if (scene == nullptr) {
+    LOGE("Importer Error: %s", Importer.GetErrorString());
+  }
+  assert(scene);
 
   delete[] meshData;
 
@@ -1475,7 +1480,7 @@ void LoadModel(const char* filePath, float scale) {
     }
   }
   size_t indexBufferSize = indexBuffer.size() * sizeof(uint32_t);
-//  model.indices.count = static_cast<uint32_t>(indexBuffer.size());
+  model.indices.count = static_cast<uint32_t>(indexBuffer.size());
 
   // Vertex buffer
   CALL_VK(CreateBuffer(
@@ -1515,7 +1520,7 @@ bool InitVulkan(android_app* app) {
   CreateDepthStencil();
   CreateRenderPass();
   CreateFrameBuffers();
-  LoadModel("models/heart/HeartAnim.fbx", 1.0f);
+  LoadModel("models/heart/Heart.dae", 3.0f);
   CreateTexture("sample_tex.png", &heartTexture);
   CreateVertexDescriptions();
   CreateUniformBuffer();
