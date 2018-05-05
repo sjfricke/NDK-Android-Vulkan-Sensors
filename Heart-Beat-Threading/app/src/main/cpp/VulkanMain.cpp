@@ -211,6 +211,202 @@ VkBool32 getSupportedDepthFormat(VkPhysicalDevice physicalDevice, VkFormat *dept
   return false;
 }
 
+
+VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
+
+  // Check for optimal tiling supportability
+  VkFormatProperties props;
+  vkGetPhysicalDeviceFormatProperties(device.gpuDevice_, texture->format, &props);
+  assert(props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
+
+  // Read the file:
+  AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath,
+                                    AASSET_MODE_BUFFER);
+  size_t fileLength = AAsset_getLength(file);
+  stbi_uc* fileContent = new unsigned char[fileLength];
+  AAsset_read(file, fileContent, fileLength);
+  AAsset_close(file);
+
+  // Get image data from stb
+  uint32_t imgWidth, imgHeight, n;
+  unsigned char* imageData = stbi_load_from_memory(
+      fileContent, fileLength, reinterpret_cast<int*>(&imgWidth),
+      reinterpret_cast<int*>(&imgHeight), reinterpret_cast<int*>(&n), 4);
+  assert(n == 4);
+  texture->width = imgWidth;
+  texture->height = imgHeight;
+  size_t textureSize = imgWidth * imgHeight * 4;
+
+  // Create a host-visible staging buffer that contains the raw image data
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingMemory;
+
+  VkBufferCreateInfo bufferCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = textureSize,
+      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+  CALL_VK(vkCreateBuffer(device.device_, &bufferCreateInfo, nullptr, &stagingBuffer));
+
+
+  VkMemoryRequirements memReqs;
+  vkGetImageMemoryRequirements(device.device_, stagingBuffer, &memReqs);
+
+  VkMemoryAllocateInfo memAllocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .pNext = nullptr,
+      .allocationSize = memReqs.size,
+      .memoryTypeIndex = 0,
+  };
+  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits,
+                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                              &memAllocInfo.memoryTypeIndex));
+
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &stagingMemory));
+  CALL_VK(vkBindImageMemory(device.device_, stagingBuffer, stagingMemory, 0));
+
+
+  // Copy texture data into staging buffer
+  uint8_t *data;
+  CALL_VK(vkMapMemory(device.device_, stagingMemory, 0, memReqs.size, 0, (void **)&data));
+  memcpy(data, (void*) imageData, textureSize);
+  vkUnmapMemory(device.device_, stagingMemory);
+
+  // Setup buffer copy regions for each mip level, but only 1 for now
+  std::vector<VkBufferImageCopy> bufferCopyRegions;
+  VkBufferImageCopy bufferCopyRegion = {
+      .imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+      .imageSubresource.mipLevel = 0,
+      .imageSubresource.baseArrayLayer = 0,
+      .imageSubresource.layerCount = 1,
+      .imageExtent.width = imgWidth,
+      .imageExtent.height = imgHeight,
+      .imageExtent.depth = 1,
+      .bufferOffset = 0,
+  };
+  bufferCopyRegions.push_back(bufferCopyRegion);
+
+  // Create optimal tiled target image
+  VkImageCreateInfo imageCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      .pNext = nullptr,
+      .imageType = texture->type,
+      .format = texture->format,
+      .extent = {texture->width, texture->height, 1},
+      .mipLevels = 1,
+      .arrayLayers = 1,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .tiling = VK_IMAGE_TILING_OPTIMAL,
+      .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+      .queueFamilyIndexCount = 1,
+      .pQueueFamilyIndices = &device.queueFamilyIndex_,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .flags = 0,
+  };
+
+  CALL_VK(vkCreateImage(device.device_, &imageCreateInfo, nullptr, &texture->image));
+
+  vkGetImageMemoryRequirements(device.device_, texture->image, &memReqs);
+  memAllocInfo.allocationSize = memReqs.size;
+  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                              &memAllocInfo.memoryTypeIndex));
+
+  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &texture->memory));
+  CALL_VK(vkBindImageMemory(device.device_, texture->image, texture->memory, 0));
+
+  // Create copy commandbuffer
+  VkCommandPoolCreateInfo cmdPoolCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+      .queueFamilyIndex = device.queueFamilyIndex_,
+  };
+
+  VkCommandPool cmdPool;
+  CALL_VK(vkCreateCommandPool(device.device_, &cmdPoolCreateInfo, nullptr,
+                              &cmdPool));
+
+  VkCommandBuffer copyCmd;
+  const VkCommandBufferAllocateInfo cmd = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      .pNext = nullptr,
+      .commandPool = cmdPool,
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+      .commandBufferCount = 1,
+  };
+
+  CALL_VK(vkAllocateCommandBuffers(device.device_, &cmd, &copyCmd));
+  VkCommandBufferBeginInfo cmdBufInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .pInheritanceInfo = nullptr};
+
+  CALL_VK(vkBeginCommandBuffer(copyCmd, &cmdBufInfo));
+
+
+  // transitions image out of UNDEFINED type
+  SetImageLayout(copyCmd, texture->image,
+                 VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // VK_PIPELINE_STAGE_HOST_BIT
+                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT); // VK_PIPELINE_STAGE_TRANSFER_BIT
+
+  // Copy the layers and mip levels from the staging buffer to the optimal tiled image
+  vkCmdCopyBufferToImage(
+      copyCmd,
+      stagingBuffer,
+      texture->image,
+      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      static_cast<uint32_t>(bufferCopyRegions.size()),
+      bufferCopyRegions.data());
+
+  // Change texture image layout to shader read after all faces have been copied
+  texture->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  SetImageLayout(copyCmd, texture->image,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                 texture->layout,
+                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // VK_PIPELINE_STAGE_TRANSFER_BIT
+                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);// VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+
+
+  CALL_VK(vkEndCommandBuffer(copyCmd));
+
+  VkFenceCreateInfo fenceInfo = {
+      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+  };
+  VkFence fence;
+  CALL_VK(vkCreateFence(device.device_, &fenceInfo, nullptr, &fence));
+
+  VkSubmitInfo submitInfo = {
+      .pNext = nullptr,
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .waitSemaphoreCount = 0,
+      .pWaitSemaphores = nullptr,
+      .pWaitDstStageMask = nullptr,
+      .commandBufferCount = 1,
+      .pCommandBuffers = &copyCmd,
+      .signalSemaphoreCount = 0,
+      .pSignalSemaphores = nullptr,
+  };
+  CALL_VK(vkQueueSubmit(device.queue_, 1, &submitInfo, fence));
+  CALL_VK(vkWaitForFences(device.device_, 1, &fence, VK_TRUE, 100000000));
+  vkDestroyFence(device.device_, fence, nullptr);
+
+  vkFreeCommandBuffers(device.device_, cmdPool, 1, &copyCmd);
+  vkDestroyCommandPool(device.device_, cmdPool, nullptr);
+
+  vkDestroyImage(device.device_, stagingBuffer, nullptr);
+  vkFreeMemory(device.device_, stagingMemory, nullptr);
+
+  stbi_image_free(imageData);
+
+  return VK_SUCCESS;
+}
 // Create vulkan device
 void CreateVulkanDevice(ANativeWindow* platformWindow) {
 
@@ -631,6 +827,47 @@ void CreateFrameBuffers(void) {
     attachments[0] = swapchain.displayViews_[i];
     CALL_VK(vkCreateFramebuffer(device.device_, &fbCreateInfo, nullptr, &swapchain.framebuffers_[i]));
   }
+}
+
+void CreateTexture(const char* filePath, struct Texture* texture) {
+  LoadTextureFromFile(filePath, texture);
+
+  const VkSamplerCreateInfo sampler = {
+      .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+      .pNext = nullptr,
+      .magFilter = VK_FILTER_NEAREST,
+      .minFilter = VK_FILTER_NEAREST,
+      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+      .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      .mipLodBias = 0.0f,
+      .maxAnisotropy = 1,
+      .compareOp = VK_COMPARE_OP_NEVER,
+      .minLod = 0.0f,
+      .maxLod = 1.0f,
+      .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+      .unnormalizedCoordinates = VK_FALSE,
+  };
+  CALL_VK(vkCreateSampler(device.device_, &sampler, nullptr, &texture->sampler));
+
+  VkImageViewCreateInfo view = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .pNext = nullptr,
+      .image = VK_NULL_HANDLE,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = texture->format,
+      .components =
+          {
+              VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
+              VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A,
+          },
+      .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+      .flags = 0,
+      .image = texture->image,
+  };
+
+  CALL_VK(vkCreateImageView(device.device_, &view, nullptr, &texture->view));
 }
 
 void CreateUniformBuffer(void) {
@@ -1211,202 +1448,6 @@ void LoadModel(const char* filePath, float scale) {
       indexBuffer.data()));
 }
 
-VkResult LoadTextureFromFile(const char* filePath, struct Texture* texure) {
-
-  // Check for optimal tiling supportability
-  VkFormatProperties props;
-  vkGetPhysicalDeviceFormatProperties(device.gpuDevice_, texure->format, &props);
-  assert(props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
-
-  // Read the file:
-  AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath,
-                                    AASSET_MODE_BUFFER);
-  size_t fileLength = AAsset_getLength(file);
-  stbi_uc* fileContent = new unsigned char[fileLength];
-  AAsset_read(file, fileContent, fileLength);
-  AAsset_close(file);
-
-  // Get image data from stb
-  uint32_t imgWidth, imgHeight, n;
-  unsigned char* imageData = stbi_load_from_memory(
-      fileContent, fileLength, reinterpret_cast<int*>(&imgWidth),
-      reinterpret_cast<int*>(&imgHeight), reinterpret_cast<int*>(&n), 4);
-  assert(n == 4);
-  texure->width = imgWidth;
-  texure->height = imgHeight;
-  size_t texureSize = imgWidth * imgHeight * 4;
-
-  // Create a host-visible staging buffer that contains the raw image data
-  VkBuffer stagingBuffer;
-  VkDeviceMemory stagingMemory;
-
-  VkBufferCreateInfo bufferCreateInfo = {
-      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-      .size = texureSize,
-      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-  };
-  CALL_VK(vkCreateBuffer(device.device_, &bufferCreateInfo, nullptr, &stagingBuffer));
-
-
-  VkMemoryRequirements memReqs;
-  vkGetImageMemoryRequirements(device.device_, stagingBuffer, &memReqs);
-
-  VkMemoryAllocateInfo memAllocInfo = {
-      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-      .pNext = nullptr,
-      .allocationSize = memReqs.size,
-      .memoryTypeIndex = 0,
-  };
-  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits,
-                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                              &memAllocInfo.memoryTypeIndex));
-
-  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &stagingMemory));
-  CALL_VK(vkBindImageMemory(device.device_, stagingBuffer, stagingMemory, 0));
-
-
-  // Copy texture data into staging buffer
-  uint8_t *data;
-  CALL_VK(vkMapMemory(device.device_, stagingMemory, 0, memReqs.size, 0, (void **)&data));
-  memcpy(data, (void*) imageData, texureSize);
-  vkUnmapMemory(device.device_, stagingMemory);
-
-  // Setup buffer copy regions for each mip level, but only 1 for now
-  std::vector<VkBufferImageCopy> bufferCopyRegions;
-  VkBufferImageCopy bufferCopyRegion = {
-      .imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-      .imageSubresource.mipLevel = 0,
-      .imageSubresource.baseArrayLayer = 0,
-      .imageSubresource.layerCount = 1,
-      .imageExtent.width = imgWidth,
-      .imageExtent.height = imgHeight,
-      .imageExtent.depth = 1,
-      .bufferOffset = 0,
-  };
-  bufferCopyRegions.push_back(bufferCopyRegion);
-
-  // Create optimal tiled target image
-  VkImageCreateInfo imageCreateInfo = {
-      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-      .pNext = nullptr,
-      .imageType = texure->type,
-      .format = texure->format,
-      .extent = {texure->width, texure->height, 1},
-      .mipLevels = 1,
-      .arrayLayers = 1,
-      .samples = VK_SAMPLE_COUNT_1_BIT,
-      .tiling = VK_IMAGE_TILING_OPTIMAL,
-      .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-      .queueFamilyIndexCount = 1,
-      .pQueueFamilyIndices = &device.queueFamilyIndex_,
-      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-      .flags = 0,
-  };
-
-  CALL_VK(vkCreateImage(device.device_, &imageCreateInfo, nullptr, &texure->image));
-
-  vkGetImageMemoryRequirements(device.device_, texure->image, &memReqs);
-  memAllocInfo.allocationSize = memReqs.size;
-  assert(MapMemoryTypeToIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                              &memAllocInfo.memoryTypeIndex));
-
-  CALL_VK(vkAllocateMemory(device.device_, &memAllocInfo, nullptr, &texure->memory));
-  CALL_VK(vkBindImageMemory(device.device_, texure->image, texure->memory, 0));
-
-  // Create copy commandbuffer
-  VkCommandPoolCreateInfo cmdPoolCreateInfo{
-      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-      .pNext = nullptr,
-      .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-      .queueFamilyIndex = device.queueFamilyIndex_,
-  };
-
-  VkCommandPool cmdPool;
-  CALL_VK(vkCreateCommandPool(device.device_, &cmdPoolCreateInfo, nullptr,
-                              &cmdPool));
-
-  VkCommandBuffer copyCmd;
-  const VkCommandBufferAllocateInfo cmd = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-      .pNext = nullptr,
-      .commandPool = cmdPool,
-      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-      .commandBufferCount = 1,
-  };
-
-  CALL_VK(vkAllocateCommandBuffers(device.device_, &cmd, &copyCmd));
-  VkCommandBufferBeginInfo cmdBufInfo = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-      .pNext = nullptr,
-      .flags = 0,
-      .pInheritanceInfo = nullptr};
-
-  CALL_VK(vkBeginCommandBuffer(copyCmd, &cmdBufInfo));
-
-
-  // transitions image out of UNDEFINED type
-  SetImageLayout(copyCmd, texure->image,
-                 VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // VK_PIPELINE_STAGE_HOST_BIT
-                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT); // VK_PIPELINE_STAGE_TRANSFER_BIT
-
-  // Copy the layers and mip levels from the staging buffer to the optimal tiled image
-  vkCmdCopyBufferToImage(
-      copyCmd,
-      stagingBuffer,
-      texure->image,
-      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-      static_cast<uint32_t>(bufferCopyRegions.size()),
-      bufferCopyRegions.data());
-
-  // Change texture image layout to shader read after all faces have been copied
-  texure->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  SetImageLayout(copyCmd, texure->image,
-      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-      texure->layout,
-      VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // VK_PIPELINE_STAGE_TRANSFER_BIT
-      VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);// VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
-
-
-  CALL_VK(vkEndCommandBuffer(copyCmd));
-
-  VkFenceCreateInfo fenceInfo = {
-      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-      .pNext = nullptr,
-      .flags = 0,
-  };
-  VkFence fence;
-  CALL_VK(vkCreateFence(device.device_, &fenceInfo, nullptr, &fence));
-
-  VkSubmitInfo submitInfo = {
-      .pNext = nullptr,
-      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-      .waitSemaphoreCount = 0,
-      .pWaitSemaphores = nullptr,
-      .pWaitDstStageMask = nullptr,
-      .commandBufferCount = 1,
-      .pCommandBuffers = &copyCmd,
-      .signalSemaphoreCount = 0,
-      .pSignalSemaphores = nullptr,
-  };
-  CALL_VK(vkQueueSubmit(device.queue_, 1, &submitInfo, fence));
-  CALL_VK(vkWaitForFences(device.device_, 1, &fence, VK_TRUE, 100000000));
-  vkDestroyFence(device.device_, fence, nullptr);
-
-  vkFreeCommandBuffers(device.device_, cmdPool, 1, &copyCmd);
-  vkDestroyCommandPool(device.device_, cmdPool, nullptr);
-
-  vkDestroyImage(device.device_, stagingBuffer, nullptr);
-  vkFreeMemory(device.device_, stagingMemory, nullptr);
-
-  stbi_image_free(imageData);
-
-  return VK_SUCCESS;
-}
-
 
 // InitVulkan:
 //   Initialize Vulkan Context when android application window is created
@@ -1427,7 +1468,7 @@ bool InitVulkan(android_app* app) {
   CreateRenderPass();
   CreateFrameBuffers();
   LoadModel("models/heart/HeartAnim.fbx", 1.0f);
-  LoadTextureFromFile("sample_tex.png", &heartTexture);
+  CreateTexture("sample_tex.png", &heartTexture);
   CreateUniformBuffer();
   CreateDescriptorSetLayout();
   CreatePipelineLayout();
