@@ -78,15 +78,13 @@ struct
 
 // Same uniform buffer layout as shader
 struct {
-  glm::mat4 projectionMatrix;
+  glm::mat4 MVP;
   glm::mat4 modelMatrix;
-  glm::vec4 lightPos = glm::vec4(25.0f, 5.0f, 5.0f, 1.0f);
-//  glm::mat4 viewMatrix;
+  glm::vec4 lightPos = glm::vec4(0.0f, 1.0f, 4.0f, 1.0f);
 } uboVS;
 
 float zoom = -30.5f;
-glm::vec3 rotation = glm::vec3(-29.0f, 172.5f, 0.0f);
-glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 0.0f);
+glm::vec3 rotation = glm::vec3(0.0f, 0.0f, 0.0f);
 
 struct Vertex {
   glm::vec3 pos;
@@ -235,17 +233,19 @@ bool MapMemoryTypeToIndex(uint32_t typeBits, VkFlags requirements_mask,
 }
 
 void updateUniformBuffers(void) {
-  uboVS.projectionMatrix = glm::perspective(glm::radians(60.0f),
-                                      (float)(swapchain.displaySize_.width) / (float)swapchain.displaySize_.height,
-                                      0.01f,
-                                      2000.0f);
 
-  glm::mat4 viewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, zoom));
-
-  uboVS.modelMatrix = viewMatrix * glm::translate(glm::mat4(1.0f), cameraPos);
+  uboVS.modelMatrix = glm::mat4(1.0f);
   uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
   uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
   uboVS.modelMatrix = glm::rotate(uboVS.modelMatrix, glm::radians(rotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
+
+  glm::mat4 projectionMatrix = glm::perspective(glm::radians(60.0f),
+                                                (float)(swapchain.displaySize_.width) / (float)swapchain.displaySize_.height,
+                                                0.01f, 256.0f);
+
+  glm::mat4 viewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, zoom));
+
+  uboVS.MVP = projectionMatrix * viewMatrix * uboVS.modelMatrix;
 
   uint8_t *pData;
   CALL_VK(vkMapMemory(device.device_, uniformBuffer.memory, 0, sizeof(uboVS), 0, (void **)&pData));
