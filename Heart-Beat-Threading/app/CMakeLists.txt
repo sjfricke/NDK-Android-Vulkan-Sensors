@@ -32,8 +32,8 @@ add_library(assimp SHARED IMPORTED)
 set_property(TARGET assimp PROPERTY IMPORTED_LOCATION ${EXTERNAL_DIR}/assimp/libs/armeabi-v7a/libassimp.so)
 
 include_directories(${EXTERNAL_DIR}/assimp/include)
-include_directories(${EXTERNAL_DIR}/gli/external/glm)
-include_directories(${EXTERNAL_DIR}/gli)
+include_directories(${EXTERNAL_DIR}/gli/external) # glm
+include_directories(${EXTERNAL_DIR}/gli) # gli
 
 target_link_libraries( HeartBeat
     assimp
