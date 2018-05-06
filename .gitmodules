@@ -1,4 +1,4 @@
 [submodule "external/gli"]
 	path = external/gli
 	url = https://github.com/g-truc/gli.git
-	branch = /0.8.2.0
+	branch = 0.8.2.0
