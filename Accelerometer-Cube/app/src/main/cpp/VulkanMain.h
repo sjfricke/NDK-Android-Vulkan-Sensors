@@ -16,8 +16,8 @@
 
 #include "vulkan_wrapper.h"
 #include "Debugging.h"
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 // Comment out to remove Validation Layers
 //#define VALIDATION_LAYERS

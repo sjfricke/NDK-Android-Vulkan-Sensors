@@ -5,9 +5,11 @@ set(APP_GLUE_DIR ${ANDROID_NDK}/sources/android/native_app_glue)
 include_directories(${APP_GLUE_DIR})
 add_library( app-glue STATIC ${APP_GLUE_DIR}/android_native_app_glue.c)
 
-set(SRC_DIR src/main/cpp)
 set(VK_VAL_LAYER_SRC_DIR ${ANDROID_NDK}/sources/third_party/vulkan/src)
 include_directories(${VK_VAL_LAYER_SRC_DIR}/include)
+
+set(SRC_DIR src/main/cpp)
+set(EXTERNAL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../external)
 
 add_library( AccelCube SHARED
 
@@ -26,10 +28,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Werror  \
 
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -u ANativeActivity_onCreate")
 
-add_subdirectory(src/main/cpp/glm)
+include_directories(${EXTERNAL_DIR}/glm)
 
 target_link_libraries( AccelCube
     app-glue
     log
-    glm
     android)

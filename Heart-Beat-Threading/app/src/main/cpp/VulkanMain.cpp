@@ -1,18 +1,16 @@
 #include "VulkanMain.h"
 #include "ValidationLayers.h"
 
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
-#include "glm/gtc/type_ptr.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
-#include "assimp/Importer.hpp"
-#include "assimp/scene.h"
-#include "assimp/postprocess.h"
-#include "assimp/cimport.h"
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include <assimp/cimport.h>
 
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
-#include <stb/stb_image.h>
+#include <gli/gli.hpp>
 
 const char* APPLICATION_NAME = "Heart_Beat_Threading";
 
@@ -139,17 +137,83 @@ struct Texture {
 
 struct Texture heartTexture {
     .type = VK_IMAGE_TYPE_2D,
-    .format = VK_FORMAT_R8G8B8A8_UNORM,
+    .format = VK_FORMAT_ASTC_8x8_UNORM_BLOCK,
 };
 
 /*
  * SetImageLayout():
  *    Helper function to transition color buffer layout
  */
-void SetImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
+void SetImageLayout(VkCommandBuffer cmdBuffer, VkImage image, uint32_t mipLevels,
                     VkImageLayout oldImageLayout, VkImageLayout newImageLayout,
                     VkPipelineStageFlags srcStages,
-                    VkPipelineStageFlags destStages);
+                    VkPipelineStageFlags destStages) {
+  VkImageMemoryBarrier imageMemoryBarrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      .pNext = NULL,
+      .srcAccessMask = 0,
+      .dstAccessMask = 0,
+      .oldLayout = oldImageLayout,
+      .newLayout = newImageLayout,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .image = image,
+      .subresourceRange =
+          {
+              .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+              .baseMipLevel = 0,
+              .levelCount = mipLevels,
+              .baseArrayLayer = 0,
+              .layerCount = 1,
+          },
+  };
+
+  switch (oldImageLayout) {
+    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+      imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+      break;
+
+    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+      imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      break;
+
+    case VK_IMAGE_LAYOUT_PREINITIALIZED:
+      imageMemoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+      break;
+
+    default:
+      break;
+  }
+
+  switch (newImageLayout) {
+    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+      imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      break;
+
+    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+      imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+      break;
+
+    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+      imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      break;
+
+    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+      imageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+      break;
+
+    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+      imageMemoryBarrier.dstAccessMask =
+          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+      break;
+
+    default:
+      break;
+  }
+
+  vkCmdPipelineBarrier(cmdBuffer, srcStages, destStages, 0, 0, NULL, 0, NULL, 1, &imageMemoryBarrier);
+}
+
 
 // A helper function
 bool MapMemoryTypeToIndex(uint32_t typeBits, VkFlags requirements_mask,
@@ -228,19 +292,16 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
   AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath,
                                     AASSET_MODE_BUFFER);
   size_t fileLength = AAsset_getLength(file);
-  stbi_uc* fileContent = new unsigned char[fileLength];
+  char* fileContent = new char[fileLength];
   AAsset_read(file, fileContent, fileLength);
   AAsset_close(file);
 
-  // Get image data from stb
-  uint32_t imgWidth, imgHeight, n;
-  unsigned char* imageData = stbi_load_from_memory(
-      fileContent, fileLength, reinterpret_cast<int*>(&imgWidth),
-      reinterpret_cast<int*>(&imgHeight), reinterpret_cast<int*>(&n), 4);
-  assert(n == 4);
-  texture->width = imgWidth;
-  texture->height = imgHeight;
-  size_t textureSize = imgWidth * imgHeight * 4;
+  gli::texture2d imageData(gli::load((const char*)fileContent, fileLength));
+  assert(!imageData.empty());
+
+  texture->width = static_cast<uint32_t>(imageData[0].extent().x);
+  texture->height = static_cast<uint32_t>(imageData[0].extent().y);
+  texture->mipLevels = static_cast<uint32_t>(imageData.levels());
 
   // Create a host-visible staging buffer that contains the raw image data
   VkBuffer stagingBuffer;
@@ -248,7 +309,7 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
 
   VkBufferCreateInfo bufferCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-      .size = textureSize,
+      .size = imageData.size(),
       .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
   };
@@ -275,22 +336,32 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
   // Copy texture data into staging buffer
   uint8_t *data;
   CALL_VK(vkMapMemory(device.device_, stagingMemory, 0, memReqs.size, 0, (void **)&data));
-  memcpy(data, (void*) imageData, textureSize);
+  memcpy(data, imageData.data(), imageData.size());
   vkUnmapMemory(device.device_, stagingMemory);
 
   // Setup buffer copy regions for each mip level, but only 1 for now
   std::vector<VkBufferImageCopy> bufferCopyRegions;
-  VkBufferImageCopy bufferCopyRegion = {
-      .imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-      .imageSubresource.mipLevel = 0,
-      .imageSubresource.baseArrayLayer = 0,
-      .imageSubresource.layerCount = 1,
-      .imageExtent.width = imgWidth,
-      .imageExtent.height = imgHeight,
-      .imageExtent.depth = 1,
-      .bufferOffset = 0,
-  };
-  bufferCopyRegions.push_back(bufferCopyRegion);
+  uint32_t offset = 0;
+
+  for (uint32_t i = 0; i < texture->mipLevels; i++)
+  {
+    VkBufferImageCopy bufferCopyRegion = {
+        .imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .imageSubresource.mipLevel = i,
+        .imageSubresource.baseArrayLayer = 0,
+        .imageSubresource.layerCount = 1,
+        .imageExtent.width = static_cast<uint32_t>(imageData[i].extent().x),
+        .imageExtent.height = static_cast<uint32_t>(imageData[i].extent().y),
+        .imageExtent.depth = 1,
+        .bufferOffset = offset,
+    };
+
+    bufferCopyRegions.push_back(bufferCopyRegion);
+
+    offset += static_cast<uint32_t>(imageData[i].size());
+  }
+
+
 
   // Create optimal tiled target image
   VkImageCreateInfo imageCreateInfo = {
@@ -299,7 +370,7 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
       .imageType = texture->type,
       .format = texture->format,
       .extent = {texture->width, texture->height, 1},
-      .mipLevels = 1,
+      .mipLevels = texture->mipLevels,
       .arrayLayers = 1,
       .samples = VK_SAMPLE_COUNT_1_BIT,
       .tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -354,7 +425,7 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
 
 
   // transitions image out of UNDEFINED type
-  SetImageLayout(copyCmd, texture->image,
+  SetImageLayout(copyCmd, texture->image, texture->mipLevels,
                  VK_IMAGE_LAYOUT_UNDEFINED,
                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // VK_PIPELINE_STAGE_HOST_BIT
@@ -371,7 +442,7 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
 
   // Change texture image layout to shader read after all faces have been copied
   texture->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  SetImageLayout(copyCmd, texture->image,
+  SetImageLayout(copyCmd, texture->image, texture->mipLevels,
                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                  texture->layout,
                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, // VK_PIPELINE_STAGE_TRANSFER_BIT
@@ -408,8 +479,6 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
 
   vkDestroyImage(device.device_, stagingBuffer, nullptr);
   vkFreeMemory(device.device_, stagingMemory, nullptr);
-
-  stbi_image_free(imageData);
 
   return VK_SUCCESS;
 }
@@ -851,7 +920,7 @@ void CreateTexture(const char* filePath, struct Texture* texture) {
       .maxAnisotropy = 1,
       .compareOp = VK_COMPARE_OP_NEVER,
       .minLod = 0.0f,
-      .maxLod = 1.0f,
+      .maxLod = (float)texture->mipLevels,
       .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
       .unnormalizedCoordinates = VK_FALSE,
   };
@@ -868,7 +937,7 @@ void CreateTexture(const char* filePath, struct Texture* texture) {
               VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
               VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A,
           },
-      .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+      .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, texture->mipLevels, 0, 1},
       .flags = 0,
       .image = texture->image,
   };
@@ -1521,7 +1590,7 @@ bool InitVulkan(android_app* app) {
   CreateRenderPass();
   CreateFrameBuffers();
   LoadModel("models/heart/Heart.dae", 3.0f);
-  CreateTexture("sample_tex.png", &heartTexture);
+  CreateTexture("models/heart/heart_astc_8x8_main.ktx", &heartTexture);
   CreateVertexDescriptions();
   CreateUniformBuffer();
   CreateDescriptorSetLayout();
@@ -1597,78 +1666,4 @@ bool VulkanDrawFrame(void) {
   };
   vkQueuePresentKHR(device.queue_, &presentInfo);
   return true;
-}
-
-/*
- * SetImageLayout():
- *    Helper function to transition color buffer layout
- */
-void SetImageLayout(VkCommandBuffer cmdBuffer, VkImage image,
-                    VkImageLayout oldImageLayout, VkImageLayout newImageLayout,
-                    VkPipelineStageFlags srcStages,
-                    VkPipelineStageFlags destStages) {
-  VkImageMemoryBarrier imageMemoryBarrier = {
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-      .pNext = NULL,
-      .srcAccessMask = 0,
-      .dstAccessMask = 0,
-      .oldLayout = oldImageLayout,
-      .newLayout = newImageLayout,
-      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .image = image,
-      .subresourceRange =
-          {
-              .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-              .baseMipLevel = 0,
-              .levelCount = 1,
-              .baseArrayLayer = 0,
-              .layerCount = 1,
-          },
-  };
-
-  switch (oldImageLayout) {
-    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-      imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-      imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_PREINITIALIZED:
-      imageMemoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-      break;
-
-    default:
-      break;
-  }
-
-  switch (newImageLayout) {
-    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-      break;
-
-    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-      imageMemoryBarrier.dstAccessMask =
-          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-      break;
-
-    default:
-      break;
-  }
-
-  vkCmdPipelineBarrier(cmdBuffer, srcStages, destStages, 0, 0, NULL, 0, NULL, 1, &imageMemoryBarrier);
 }
