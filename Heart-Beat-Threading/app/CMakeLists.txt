@@ -12,15 +12,11 @@ set(VK_VAL_LAYER_SRC_DIR ${ANDROID_NDK}/sources/third_party/vulkan/src)
 include_directories(${VK_VAL_LAYER_SRC_DIR}/include)
 
 add_library( HeartBeat SHARED
-
              ${SRC_DIR}/vulkan_wrapper.cpp
-
-             ${SRC_DIR}/AndroidMain.cpp
-             ${SRC_DIR}/VulkanMain.cpp
              ${SRC_DIR}/ValidationLayers.cpp
              ${SRC_DIR}/ModelLoader.cpp
+             ${SRC_DIR}/VulkanMain.cpp
              ${SRC_DIR}/Sensor.cpp)
-
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -fexceptions \
                     -DVK_USE_PLATFORM_ANDROID_KHR \

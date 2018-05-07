@@ -15,7 +15,15 @@
 #include <android/log.h>
 #include <cassert>
 #include <cstring>
-#include "VulkanUtil.h"
+
+#define CALL_VK(func)                                                 \
+  if (VK_SUCCESS != (func)) {                                         \
+    __android_log_print(ANDROID_LOG_ERROR, "ValidationLayers ",              \
+                        "Vulkan error. File[%s], line[%d]", __FILE__, \
+                        __LINE__);                                    \
+    assert(false);                                                    \
+  }
+
 
 /*
  * Validation Layer names at this time (info purpose)
@@ -114,7 +122,7 @@ bool LayerAndExtensions::InitExtNames(const std::vector<ExtInfo>& prop,
       if (duplicate) continue;
       // save this unique one
       names->push_back(ext.prop[i].extensionName);
-      LOGI("Ext name: %s", ext.prop[i].extensionName);
+//      LOGI("Ext name: %s", ext.prop[i].extensionName);
     }
   }
   return true;
@@ -152,7 +160,7 @@ char** LayerAndExtensions::InstLayerNames(void) {
   return nullptr;
 }
 uint32_t LayerAndExtensions::InstLayerCount(void) {
-  LOGI("InstLayerCount = %d", static_cast<int32_t>(instLayers_.size()));
+//  LOGI("InstLayerCount = %d", static_cast<int32_t>(instLayers_.size()));
   return static_cast<int32_t>(instLayers_.size());
 }
 char** LayerAndExtensions::InstExtNames(void) {
@@ -162,7 +170,7 @@ char** LayerAndExtensions::InstExtNames(void) {
   return nullptr;
 }
 uint32_t LayerAndExtensions::InstExtCount(void) {
-  LOGI("InstExtCount: %d", static_cast<uint32_t>(instExts_.size()));
+//  LOGI("InstExtCount: %d", static_cast<uint32_t>(instExts_.size()));
   return static_cast<uint32_t>(instExts_.size());
 }
 
@@ -210,7 +218,7 @@ LayerAndExtensions::LayerAndExtensions(void) {
   }
   for (uint32_t i = 0; i < instLayerCount_; i++) {
     instLayers_.push_back(instLayerProp_[i].layerName);
-    LOGI("InstLayer name: %s", instLayerProp_[i].layerName);
+//    LOGI("InstLayer name: %s", instLayerProp_[i].layerName);
   }
   CheckLayerLoadingSequence(&instLayers_);
 
@@ -250,7 +258,7 @@ void LayerAndExtensions::InitDevLayersAndExt(VkPhysicalDevice physicalDevice) {
   // so we just add them all in brutally
   // assume all device layers are also implemented for device layers
   if (devLayerCount_ == 1) {
-    LOGI("Only Reported One layer for device");
+//    LOGI("Only Reported One layer for device");
     if (devLayerProp_) delete[] devLayerProp_;
     devLayerProp_ =
         (instLayerCount_ ? (new VkLayerProperties[instLayerCount_]) : nullptr);
@@ -261,7 +269,7 @@ void LayerAndExtensions::InitDevLayersAndExt(VkPhysicalDevice physicalDevice) {
 #endif
 
   for (int i = 0; i < devLayerCount_; i++) {
-    LOGI("deviceLayerName: %s", devLayerProp_[i].layerName);
+//    LOGI("deviceLayerName: %s", devLayerProp_[i].layerName);
     devLayers_.push_back(devLayerProp_[i].layerName);
   }
   CheckLayerLoadingSequence(&devLayers_);
@@ -318,7 +326,8 @@ const char* LayerAndExtensions::GetDbgExtName(void) { return kDbgExtName; }
 bool LayerAndExtensions::HookDbgReportExt(VkInstance instance) {
   instance_ = instance;
   if (!IsInstExtSupported(GetDbgExtName())) {
-    LOGE("VK_EXT_debug_report Is no supported");
+    __android_log_print(ANDROID_LOG_DEBUG, "Vulkan-Debug-Message: ", "%s",
+                        "VK_EXT_debug_report Is no supported");
     return false;
   }
   if (!vkCreateDebugReportCallbackEXT) {

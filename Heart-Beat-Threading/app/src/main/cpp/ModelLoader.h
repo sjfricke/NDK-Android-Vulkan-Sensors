@@ -13,7 +13,8 @@
 
 class ModelLoader {
  private:
-  VkDevice mDevice = nullptr;
+  VkDevice mLogicDevice = nullptr;
+  VkPhysicalDevice mPhysicalDevice = nullptr;
   android_app* androidAppCtx = nullptr;
   VkResult CreateBuffer(VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryPropertyFlags,
       VkDeviceSize size, VkBuffer *buffer, VkDeviceMemory *memory, void *data = nullptr);
@@ -57,6 +58,7 @@ class ModelLoader {
      public:
       /** @brief Components used to generate vertices from */
       std::vector<Component> components;
+      VertexLayout() {};
 
       VertexLayout(std::vector<Component> components)
       {
@@ -122,7 +124,7 @@ class ModelLoader {
   };
 
 
-  ModelLoader(VkDevice device, android_app* app);
+  ModelLoader(VkPhysicalDevice pDevice, VkDevice lDevice, android_app* app);
   ~ModelLoader();
   void LoadFromFile(const char* filePath, Model* model);
 };

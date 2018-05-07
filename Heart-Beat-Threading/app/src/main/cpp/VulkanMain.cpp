@@ -1,7 +1,9 @@
-#include "VulkanMain.h"
-#include "VulkanUtil.h"
-#include "Buffers.h"
-#include "ModelLoader.h"
+#include <android_native_app_glue.h>
+
+#include <cassert>
+#include <cstring>
+#include <vector>
+#include <array>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -10,8 +12,26 @@
 
 #include <gli/gli.hpp>
 
+#include "VulkanUtil.h"
+#include "ModelLoader.h"
+#include "ValidationLayers.h"
+
+using namespace navs;
+
 // Android Native App pointer...
 android_app* androidAppCtx = nullptr;
+
+struct VulkanDeviceInfo {
+  bool initialized_;
+
+  VkInstance instance_;
+  VkPhysicalDevice physical_;
+  VkDevice logic_;
+  uint32_t queueFamilyIndex_;
+
+  VkSurfaceKHR surface_;
+  VkQueue queue_;
+} device;
 
 struct VulkanSwapchainInfo {
   VkSwapchainKHR cmdBuffer;
@@ -107,7 +127,7 @@ struct Texture heartNormalTexture {
 };
 
 ModelLoader* modelLoader;
-ModelLoader::Model heartModel;
+struct ModelLoader::Model heartModel;
 
 /*
  * SetImageLayout():
@@ -278,7 +298,7 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
       .allocationSize = memReqs.size,
       .memoryTypeIndex = 0,
   };
-  assert(navs::MapMemoryTypeToIndex(memReqs.memoryTypeBits,
+  assert(MapMemoryTypeToIndex(device.physical_, memReqs.memoryTypeBits,
                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                               &memAllocInfo.memoryTypeIndex));
 
@@ -340,7 +360,7 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
   vkGetImageMemoryRequirements(device.logic_, texture->image, &memReqs);
   memAllocInfo.allocationSize = memReqs.size;
 
-  assert(navs::MapMemoryTypeToIndex(memReqs.memoryTypeBits,
+  assert(MapMemoryTypeToIndex(device.physical_, memReqs.memoryTypeBits,
                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memAllocInfo.memoryTypeIndex));
 
   CALL_VK(vkAllocateMemory(device.logic_, &memAllocInfo, nullptr, &texture->memory));
@@ -436,8 +456,136 @@ VkResult LoadTextureFromFile(const char* filePath, struct Texture* texture) {
   return VK_SUCCESS;
 }
 
+// Create vulkan device
+void CreateVulkanDevice(ANativeWindow *platformWindow) {
+
+#ifdef VALIDATION_LAYERS
+  // prepare debug and layer objects
+  LayerAndExtensions layerAndExt;
+  layerAndExt.AddInstanceExt(layerAndExt.GetDbgExtName());
+#else
+  std::vector<const char*> instance_extensions;
+  std::vector<const char*> device_extensions;
+  instance_extensions.push_back("VK_KHR_surface");
+  instance_extensions.push_back("VK_KHR_android_surface");
+  device_extensions.push_back("VK_KHR_swapchain");
+#endif
+
+  VkApplicationInfo appInfo = {
+      .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+      .pNext = nullptr,
+      .apiVersion = VK_MAKE_VERSION(1, 0, 0),
+      .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+      .engineVersion = VK_MAKE_VERSION(1, 0, 0),
+      .pApplicationName = APPLICATION_NAME,
+      .pEngineName = "NAVS",
+  };
+
+  // **********************************************************
+  // Create the Vulkan instance
+  VkInstanceCreateInfo instanceCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+      .pNext = nullptr,
+      .pApplicationInfo = &appInfo,
+#ifdef VALIDATION_LAYERS
+      .enabledExtensionCount = layerAndExt.InstExtCount(),
+      .ppEnabledExtensionNames = static_cast<const char *const *>(layerAndExt.InstExtNames()),
+      .enabledLayerCount = layerAndExt.InstLayerCount(),
+      .ppEnabledLayerNames = static_cast<const char *const *>(layerAndExt.InstLayerNames()),
+#else
+  .enabledExtensionCount = static_cast<uint32_t>(instance_extensions.size()),
+  .ppEnabledExtensionNames = instance_extensions.data(),
+  .enabledLayerCount = 0,
+  .ppEnabledLayerNames = nullptr,
+#endif
+  };
+
+  CALL_VK(vkCreateInstance(&instanceCreateInfo, nullptr, &device.instance_));
+
+#ifdef VALIDATION_LAYERS
+  // Create debug callback obj and connect to vulkan instance
+  layerAndExt.HookDbgReportExt(device.instance_);
+#endif
+
+  VkAndroidSurfaceCreateInfoKHR createInfo{
+      .sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,
+      .pNext = nullptr,
+      .flags = 0,
+      .window = platformWindow};
+
+  CALL_VK(vkCreateAndroidSurfaceKHR(device.instance_, &createInfo, nullptr, &device.surface_));
+  // Find one GPU to use:
+  // On Android, every GPU device is equal -- supporting
+  // graphics/compute/present
+  // for this sample, we use the very first GPU device found on the system
+  uint32_t gpuCount = 0;
+  CALL_VK(vkEnumeratePhysicalDevices(device.instance_, &gpuCount, nullptr));
+  VkPhysicalDevice tmpGpus[gpuCount];
+  CALL_VK(vkEnumeratePhysicalDevices(device.instance_, &gpuCount, tmpGpus));
+  device.physical_ = tmpGpus[0];  // Pick up the first GPU Device
+
+#ifdef VALIDATION_LAYERS
+  layerAndExt.InitDevLayersAndExt(device.physical_);
+#endif
+
+  // Find a GFX queue family
+  uint32_t queueFamilyCount;
+  vkGetPhysicalDeviceQueueFamilyProperties(device.physical_, &queueFamilyCount, nullptr);
+  assert(queueFamilyCount);
+  std::vector<VkQueueFamilyProperties> queueFamilyProperties(queueFamilyCount);
+  vkGetPhysicalDeviceQueueFamilyProperties(device.physical_,
+                                           &queueFamilyCount,
+                                           queueFamilyProperties.data());
+
+  uint32_t queueFamilyIndex;
+  for (queueFamilyIndex = 0; queueFamilyIndex < queueFamilyCount;
+       queueFamilyIndex++) {
+    if (queueFamilyProperties[queueFamilyIndex].queueFlags &
+        VK_QUEUE_GRAPHICS_BIT) {
+      break;
+    }
+  }
+  assert(queueFamilyIndex < queueFamilyCount);
+  device.queueFamilyIndex_ = queueFamilyIndex;
+
+  // Create a logical device (vulkan device)
+  float priorities[] = {
+      1.0f,
+  };
+  VkDeviceQueueCreateInfo queueCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = 0,
+      .queueCount = 1,
+      .queueFamilyIndex = queueFamilyIndex,
+      .pQueuePriorities = priorities,
+  };
+
+  VkDeviceCreateInfo deviceCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+      .pNext = nullptr,
+      .queueCreateInfoCount = 1,
+      .pQueueCreateInfos = &queueCreateInfo,
+#ifdef VALIDATION_LAYERS
+      .enabledLayerCount = layerAndExt.DevLayerCount(),
+      .ppEnabledLayerNames = static_cast<const char *const *>(layerAndExt.DevLayerNames()),
+      .enabledExtensionCount = layerAndExt.DevExtCount(),
+      .ppEnabledExtensionNames = static_cast<const char *const *>(layerAndExt.DevExtNames()),
+      .pEnabledFeatures = nullptr
+#else
+  .enabledLayerCount = 0,
+  .ppEnabledLayerNames = nullptr,
+  .enabledExtensionCount = static_cast<uint32_t>(device_extensions.size()),
+  .ppEnabledExtensionNames = device_extensions.data(),
+  .pEnabledFeatures = nullptr,
+#endif
+  };
+
+  CALL_VK(vkCreateDevice(device.physical_, &deviceCreateInfo, nullptr, &device.logic_));
+  vkGetDeviceQueue(device.logic_, device.queueFamilyIndex_, 0, &device.queue_);
+}
+
 void CreateSwapChain(void) {
-  LOGI("->createSwapChain");
   memset(&swapchain, 0, sizeof(swapchain));
 
   // **********************************************************
@@ -455,7 +603,7 @@ void CreateSwapChain(void) {
   VkSurfaceFormatKHR* formats = new VkSurfaceFormatKHR[formatCount];
   vkGetPhysicalDeviceSurfaceFormatsKHR(device.physical_, device.surface_,
                                        &formatCount, formats);
-  LOGI("Got %d formats", formatCount);
+  assert(formatCount > 0);
 
   uint32_t chosenFormat;
   for (chosenFormat = 0; chosenFormat < formatCount; chosenFormat++) {
@@ -528,7 +676,6 @@ void CreateSwapChain(void) {
   }
 
   delete[] formats;
-  LOGI("<-createSwapChain");
 }
 
 void DeleteSwapChain(void) {
@@ -617,7 +764,7 @@ void CreateDepthStencil(void) {
   CALL_VK(vkCreateImage(device.logic_, &image, nullptr, &depthStencil.image));
   vkGetImageMemoryRequirements(device.logic_, depthStencil.image, &memReqs);
   memAllocInfo.allocationSize = memReqs.size;
-  assert(navs::MapMemoryTypeToIndex(memReqs.memoryTypeBits,
+  assert(MapMemoryTypeToIndex(device.physical_, memReqs.memoryTypeBits,
                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memAllocInfo.memoryTypeIndex));
 
   CALL_VK(vkAllocateMemory(device.logic_, &memAllocInfo, nullptr, &depthStencil.mem));
@@ -756,7 +903,6 @@ void CreateTexture(const char* filePath, struct Texture* texture) {
   VkImageViewCreateInfo view = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
       .pNext = nullptr,
-      .image = VK_NULL_HANDLE,
       .viewType = VK_IMAGE_VIEW_TYPE_2D,
       .format = texture->format,
       .components =
@@ -851,7 +997,7 @@ void CreateUniformBuffer(void) {
 
   // Assign the proper memory type for that buffer
   memAllocInfo.allocationSize = memReq.size;
-  assert(navs::MapMemoryTypeToIndex(memReq.memoryTypeBits,
+  assert(MapMemoryTypeToIndex(device.physical_, memReq.memoryTypeBits,
                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                        &memAllocInfo.memoryTypeIndex));
 
@@ -878,8 +1024,15 @@ void CreateDescriptorSetLayout(void) {
       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
       .pImmutableSamplers = nullptr
   };
-  VkDescriptorSetLayoutBinding fragmentSetLayoutBinding {
+  VkDescriptorSetLayoutBinding mainSamplerSetLayoutBinding {
       .binding = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+      .pImmutableSamplers = nullptr
+  };
+  VkDescriptorSetLayoutBinding normalSamplerSetLayoutBinding {
+      .binding = 2,
       .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       .descriptorCount = 1,
       .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -887,7 +1040,8 @@ void CreateDescriptorSetLayout(void) {
   };
 
   setLayoutBindings.push_back(vertexSetLayoutBinding);
-  setLayoutBindings.push_back(fragmentSetLayoutBinding);
+  setLayoutBindings.push_back(mainSamplerSetLayoutBinding);
+  setLayoutBindings.push_back(normalSamplerSetLayoutBinding);
 
   VkDescriptorSetLayoutCreateInfo descriptorLayout{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -1262,10 +1416,9 @@ bool InitVulkan(android_app* app) {
     return false;
   }
 
-
   CreateVulkanDevice(app->window);
 
-  modelLoader = new ModelLoader(device.logic_, androidAppCtx);
+  modelLoader = new ModelLoader(device.physical_, device.logic_, androidAppCtx);
 
   CreateSwapChain();
   CreateCommandPool();
@@ -1365,4 +1518,48 @@ bool VulkanDrawFrame(void) {
   };
   vkQueuePresentKHR(device.queue_, &presentInfo);
   return true;
+}
+
+/*
+ * Android main functions to kick off native app
+ */
+
+// Process the next main command.
+void handle_cmd(android_app* app, int32_t cmd) {
+  switch (cmd) {
+    case APP_CMD_INIT_WINDOW:
+      // The window is being shown, get it ready.
+      InitVulkan(app);
+      break;
+    case APP_CMD_TERM_WINDOW:
+      // The window is being hidden or closed, clean it up.
+      DeleteVulkan();
+      break;
+    default:
+      LOGI("event not handled: %d", cmd);
+  }
+}
+
+void android_main(struct android_app* app) {
+
+  LOGE("STARTED APP");
+  // Set the callback to process system events
+  app->onAppCmd = handle_cmd;
+
+  // Used to poll the events in the main loop
+  int events;
+  android_poll_source* source;
+
+  // Main loop
+  do {
+    if (ALooper_pollAll(IsVulkanReady() ? 1 : 0, nullptr,
+                        &events, (void**)&source) >= 0) {
+      if (source != NULL) source->process(app, source);
+    }
+
+    // render if vulkan is ready
+    if (IsVulkanReady()) {
+      VulkanDrawFrame();
+    }
+  } while (app->destroyRequested == 0);
 }
