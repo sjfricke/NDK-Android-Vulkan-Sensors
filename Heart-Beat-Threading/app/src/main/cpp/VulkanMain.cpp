@@ -83,7 +83,7 @@ struct {
   glm::mat4 MVP;
   glm::mat4 modelMatrix;
   glm::mat4 normal;
-  glm::vec4 lightPos = glm::vec4(0.0f, 1.0f, 4.0f, 1.0f);
+  glm::vec4 lightPos = glm::vec4(-1.5f,-3.0f, 4.0f, 1.0f);
 } uboVS;
 
 float zoom = -6.0f;
