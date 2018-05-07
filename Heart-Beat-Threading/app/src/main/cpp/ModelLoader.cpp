@@ -148,7 +148,7 @@ void ModelLoader::LoadFromFile(const char* filePath, Model* model)
 
   uint32_t vertexBufferSize = static_cast<uint32_t>(vertexBuffer.size()) * sizeof(float);
   uint32_t indexBufferSize = static_cast<uint32_t>(indexBuffer.size()) * sizeof(uint32_t);
-  LOGE("V: %u -- I: %u", vertexBufferSize, indexBufferSize);
+//  LOGE("V: %u -- I: %u", vertexBufferSize, indexBufferSize);
 
   // Vertex buffer
   CALL_VK(CreateBuffer(

@@ -18,6 +18,7 @@ void main()
     float lightRadius = 45.0;
     float invRadius = 1.0/lightRadius;
     float ambient = 0.25;
+    vec3 specularColor = vec3(1.0, 0.8, 0.8);
 
 	vec3 color = texture(colorMap, inUV).rgb;
 	vec3 normal = normalize((texture(normalMap, inUV).rgb - 0.5) * 2.0);
@@ -34,5 +35,5 @@ void main()
 
     float specular = pow(max(dot(view, reflectDir), 0.0), 4.0);
 
-    outFragColor = vec4((color * atten + (diffuse * color + 0.5 * specular)) * atten, 1.0);
+    outFragColor = vec4((color * atten + (diffuse * color + 0.5 * specular * specularColor)) * atten, 1.0);
 }

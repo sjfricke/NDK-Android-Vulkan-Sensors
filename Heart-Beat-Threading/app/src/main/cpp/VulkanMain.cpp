@@ -83,7 +83,7 @@ struct {
   glm::mat4 MVP;
   glm::mat4 modelMatrix;
   glm::mat4 normal;
-  glm::vec4 lightPos = glm::vec4(-1.5f,-3.0f, 4.0f, 1.0f);
+  glm::vec4 lightPos = glm::vec4(0.5f,-2.5f, 4.0f, 1.0f);
 } uboVS;
 
 float zoom = -6.0f;
@@ -129,6 +129,14 @@ struct Texture heartNormalTexture {
 ModelLoader* modelLoader;
 struct ModelLoader::Model heartModel;
 
+struct TouchPos {
+  int32_t x;
+  int32_t y;
+} touchPos;
+bool touchDown = false;
+double touchTimer = 0.0;
+int64_t lastTapTime = 0;
+float rotationSpeed = 1.0f;
 /*
  * SetImageLayout():
  *    Helper function to transition color buffer layout
@@ -1540,10 +1548,65 @@ void handle_cmd(android_app* app, int32_t cmd) {
   }
 }
 
+int32_t handle_input(android_app* app, AInputEvent* event) {
+  if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION) {
+    int32_t eventSource = AInputEvent_getSource(event);
+
+    if (eventSource == AINPUT_SOURCE_TOUCHSCREEN) {
+        int32_t action = AMotionEvent_getAction(event);
+
+        switch (action) {
+          case AMOTION_EVENT_ACTION_UP: {
+            lastTapTime = AMotionEvent_getEventTime(event);
+            touchPos.x = AMotionEvent_getX(event, 0);
+            touchPos.y = AMotionEvent_getY(event, 0);
+            touchTimer = 0.0;
+            touchDown = false;
+
+            return 1;
+            break;
+          }
+          case AMOTION_EVENT_ACTION_DOWN: {
+            touchDown = true;
+
+            touchPos.x = AMotionEvent_getX(event, 0);
+            touchPos.y = AMotionEvent_getY(event, 0);
+            break;
+          }
+          case AMOTION_EVENT_ACTION_MOVE: {
+            bool handled = false;
+
+            if (!handled) {
+              int32_t eventX = AMotionEvent_getX(event, 0);
+              int32_t eventY = AMotionEvent_getY(event, 0);
+
+              float deltaX = (float)(touchPos.y - eventY) * rotationSpeed * 0.5f;
+              float deltaY = (float)(touchPos.x - eventX) * rotationSpeed * 0.5f;
+
+              rotation.x += deltaX;
+              rotation.y -= deltaY;
+
+              updateUniformBuffers();
+
+              touchPos.x = eventX;
+              touchPos.y = eventY;
+            }
+            break;
+          }
+          default:
+            return 1;
+            break;
+        }
+      }
+      return 0;
+  }
+}
+
 void android_main(struct android_app* app) {
 
   // Set the callback to process system events
   app->onAppCmd = handle_cmd;
+  app->onInputEvent = handle_input;
 
   // Used to poll the events in the main loop
   int events;
