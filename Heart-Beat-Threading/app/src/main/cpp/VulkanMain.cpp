@@ -922,12 +922,12 @@ void CreateVertexDescriptions() {
   // Binding description
   vertices.bindingDescriptions.resize(1);
   vertices.bindingDescriptions[0].binding = 0;
-  vertices.bindingDescriptions[0].stride = sizeof(Vertex);
+  vertices.bindingDescriptions[0].stride = heartModel.layout.stride();
   vertices.bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
   // Attribute descriptions
   // Describes memory layout and shader positions
-  vertices.attributeDescriptions.resize(4);
+  vertices.attributeDescriptions.resize(5); // TODO hardcoded
   // Location 0 : Position
   vertices.attributeDescriptions[0].binding = 0;
   vertices.attributeDescriptions[0].location = 0;

@@ -49,4 +49,6 @@ void main()
 	outViewVec.x = dot(inTangent, inPos);
 	outViewVec.y = dot(inBiTangent, inPos);
 	outViewVec.z = dot(inNormal, inPos);
+
+	outViewVec = -pos;
 }

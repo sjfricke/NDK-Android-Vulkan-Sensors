@@ -28,7 +28,9 @@ void ModelLoader::LoadFromFile(const char* filePath, Model* model)
   Assimp::Importer Importer;
 
   // Flags for loading the mesh
-  static const int assimpFlags = aiProcess_FlipWindingOrder | aiProcess_Triangulate | aiProcess_PreTransformVertices;
+//  static const int assimpFlags = aiProcess_FlipWindingOrder | aiProcess_Triangulate | aiProcess_PreTransformVertices;
+  static const int assimpFlags = aiProcess_FlipWindingOrder | aiProcess_Triangulate |
+      aiProcess_PreTransformVertices | aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals;
 
   assert(androidAppCtx);
   AAsset* file = AAssetManager_open(androidAppCtx->activity->assetManager, filePath, AASSET_MODE_STREAMING);
@@ -126,7 +128,6 @@ void ModelLoader::LoadFromFile(const char* filePath, Model* model)
             break;
         };
       }
-
     }
 
     model->parts[i].vertexCount = paiMesh->mNumVertices;
@@ -147,6 +148,7 @@ void ModelLoader::LoadFromFile(const char* filePath, Model* model)
 
   uint32_t vertexBufferSize = static_cast<uint32_t>(vertexBuffer.size()) * sizeof(float);
   uint32_t indexBufferSize = static_cast<uint32_t>(indexBuffer.size()) * sizeof(uint32_t);
+  LOGE("V: %u -- I: %u", vertexBufferSize, indexBufferSize);
 
   // Vertex buffer
   CALL_VK(CreateBuffer(
