@@ -18,6 +18,7 @@ add_library( HeartBeat SHARED
              ${SRC_DIR}/AndroidMain.cpp
              ${SRC_DIR}/VulkanMain.cpp
              ${SRC_DIR}/ValidationLayers.cpp
+             ${SRC_DIR}/ModelLoader.cpp
              ${SRC_DIR}/Sensor.cpp)
 
 

@@ -14,12 +14,6 @@
 #include <vector>
 #include <array>
 
-#include "vulkan_wrapper.h"
-#include "Debugging.h"
-
-// Comment out to remove Validation Layers
-#define VALIDATION_LAYERS
-
 // Initialize vulkan device context
 // after return, vulkan is ready to draw
 bool InitVulkan(android_app* app);

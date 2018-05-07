@@ -15,7 +15,7 @@
 #include <android/log.h>
 #include <cassert>
 #include <cstring>
-#include "Debugging.h"
+#include "VulkanUtil.h"
 
 /*
  * Validation Layer names at this time (info purpose)
