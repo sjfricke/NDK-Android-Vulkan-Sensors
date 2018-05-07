@@ -12,14 +12,10 @@ set(SRC_DIR src/main/cpp)
 set(EXTERNAL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../external)
 
 add_library( AccelCube SHARED
-
              ${SRC_DIR}/vulkan_wrapper.cpp
-
-             ${SRC_DIR}/AndroidMain.cpp
              ${SRC_DIR}/VulkanMain.cpp
              ${SRC_DIR}/ValidationLayers.cpp
              ${SRC_DIR}/Sensor.cpp)
-
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Werror  \
                     -DVK_USE_PLATFORM_ANDROID_KHR \
