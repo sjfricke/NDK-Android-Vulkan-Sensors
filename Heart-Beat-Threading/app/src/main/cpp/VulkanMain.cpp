@@ -1444,7 +1444,7 @@ bool InitVulkan(android_app* app) {
        ModelLoader::VERTEX_COMPONENT_BITANGENT,
       });
   heartModel.createInfo = ModelLoader::Model::CreateInfo(1.0f, 1.0f, 0.0f);
-  modelLoader->LoadFromFile("models/heart/Heart.dae", &heartModel);
+  modelLoader->LoadFromFile("models/heart/Heart_2.dae", &heartModel);
 
   CreateTexture("models/heart/heart_astc_8x8_main.ktx", &heartMainTexture);
   CreateTexture("models/heart/heart_astc_8x8_normal.ktx", &heartNormalTexture);

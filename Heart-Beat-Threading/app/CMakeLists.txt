@@ -25,18 +25,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -fexceptions \
 
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -u ANativeActivity_onCreate")
 
-add_library(assimp SHARED IMPORTED)
-set_property(TARGET assimp PROPERTY IMPORTED_LOCATION ${EXTERNAL_DIR}/assimp/libs/armeabi-v7a/libassimp.so)
-
-include_directories(${EXTERNAL_DIR}/assimp/include)
 include_directories(${EXTERNAL_DIR}/gli/external) # glm
 include_directories(${EXTERNAL_DIR}/gli) # gli
 
 target_link_libraries( HeartBeat
-    assimp
     app-glue
     log
     android)
-
- add_custom_command(TARGET HeartBeat POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy ${EXTERNAL_DIR}/assimp/libs/armeabi-v7a/libassimp.so ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
